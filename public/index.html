@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat App</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+    }
+    .chat-box {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      background-color: #f9f9f9;
+    }
+    .messages {
+      max-height: 400px;
+      overflow-y: auto;
+      margin-bottom: 20px;
+    }
+    .message {
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      margin-bottom: 10px;
+    }
+    .message img {
+      max-width: 100px;
+    }
+    input, button {
+      padding: 10px;
+      margin: 5px;
+    }
+  </style>
+</head>
+<body>
+<!-- Login Form -->
+<div id="loginForm" class="auth-form">
+    <h2>Login</h2>
+    <input type="text" id="loginUsername" placeholder="Username" />
+    <input type="password" id="loginPassword" placeholder="Password" />
+    <button onclick="login()">Login</button>
+    <a href="#" onclick="toggleAuthForm('register')">Register</a>
+  </div>
+  
+  <!-- Registration Form -->
+  <div id="registerForm" class="auth-form" style="display: none;">
+    <h2>Register</h2>
+    <input type="text" id="registerUsername" placeholder="Username" />
+    <input type="password" id="registerPassword" placeholder="Password" />
+    <button onclick="register()">Register</button>
+    <a href="#" onclick="toggleAuthForm('login')">Login</a>
+  </div>
+  
+  <script>
+    // Toggle between login and register forms
+    function toggleAuthForm(form) {
+      if (form === 'register') {
+        document.getElementById('loginForm').style.display = 'none';
+        document.getElementById('registerForm').style.display = 'block';
+      } else {
+        document.getElementById('loginForm').style.display = 'block';
+        document.getElementById('registerForm').style.display = 'none';
+      }
+    }
+  
+    // Login function
+    async function login() {
+      const username = document.getElementById('loginUsername').value;
+      const password = document.getElementById('loginPassword').value;
+  
+      const res = await fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+  
+      const data = await res.json();
+      if (data.token) {
+        localStorage.setItem('token', data.token);
+        window.location.href = '/';
+      } else {
+        alert('Login failed');
+      }
+    }
+  
+    // Registration function
+    async function register() {
+      const username = document.getElementById('registerUsername').value;
+      const password = document.getElementById('registerPassword').value;
+  
+      const res = await fetch('/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+  
+      const data = await res.json();
+      if (data.message) {
+        alert('Registration successful');
+        toggleAuthForm('login');
+      } else {
+        alert('Registration failed');
+      }
+    }
+  </script>
+  
+<div class="chat-box">
+  <div class="messages" id="messages"></div>
+  <input type="text" id="messageText" placeholder="Type your message" />
+  <input type="file" id="imageInput" />
+  <button id="sendMessage">Send</button>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io();
+  const messageText = document.getElementById('messageText');
+  const imageInput = document.getElementById('imageInput');
+  const sendMessageButton = document.getElementById('sendMessage');
+  const messagesDiv = document.getElementById('messages');
+
+  // Handle image upload and send the message
+  sendMessageButton.onclick = async () => {
+    const text = messageText.value;
+    const image = imageInput.files[0];
+    const formData = new FormData();
+
+    if (image) {
+      formData.append('image', image);
+      const res = await fetch('/upload', { method: 'POST', body: formData });
+      const { imageUrl } = await res.json();
+
+      const messageData = {
+        sender: 'User', 
+        text: text, 
+        image: imageUrl
+      };
+      socket.emit('new-message', messageData);
+    } else if (text) {
+      const messageData = { sender: 'User', text, image: '' };
+      socket.emit('new-message', messageData);
+    }
+
+    messageText.value = '';
+    imageInput.value = '';
+  };
+
+  // Display messages in the UI
+  socket.on('message', (messageData) => {
+    const messageDiv = document.createElement('div');
+    messageDiv.classList.add('message');
+
+    if (messageData.text) {
+      messageDiv.innerHTML = `<strong>${messageData.sender}</strong>: ${messageData.text}`;
+    }
+
+    if (messageData.image) {
+      messageDiv.innerHTML += `<img src="${messageData.image}" alt="Image">`;
+    }
+
+    messagesDiv.appendChild(messageDiv);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  });
+
+  // Fetch previous messages
+  window.onload = async () => {
+    const res = await fetch('/messages');
+    const messages = await res.json();
+
+    messages.forEach((messageData) => {
+      const messageDiv = document.createElement('div');
+      messageDiv.classList.add('message');
+      if (messageData.text) {
+        messageDiv.innerHTML = `<strong>${messageData.sender}</strong>: ${messageData.text}`;
+      }
+      if (messageData.image) {
+        messageDiv.innerHTML += `<img src="${messageData.image}" alt="Image">`;
+      }
+      messagesDiv.appendChild(messageDiv);
+    });
+  };
+</script>
+
+</body>
+</html>
