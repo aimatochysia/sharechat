@@ -7,6 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const cors = require('cors');
 const cbor = require('cbor');
+const rateLimit = require('express-rate-limit');
 const Message = require('./models/Message');
 
 const app = express();
@@ -51,8 +52,36 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
+// Rate limiting middleware
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 auth attempts per windowMs
+  message: 'Too many authentication attempts, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // Limit each IP to 20 uploads per windowMs
+  message: 'Too many uploads, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply rate limiting to API routes
+app.use('/api/', apiLimiter);
+
 // Authentication endpoint
-app.post('/api/auth', (req, res) => {
+app.post('/api/auth', authLimiter, (req, res) => {
   const { password } = req.body;
   if (password === CHAT_PASSWORD) {
     res.json({ success: true });
@@ -122,7 +151,7 @@ const upload = multer({
 });
 
 // Send a new message (with optional image)
-app.post('/api/messages', upload.single('image'), async (req, res) => {
+app.post('/api/messages', uploadLimiter, upload.single('image'), async (req, res) => {
   try {
     const { text } = req.body;
     const messageData = { text };
