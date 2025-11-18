@@ -42,6 +42,13 @@ function ChatInterface({ onLogout }) {
       setMessages((prev) => prev.filter((m) => m._id !== messageId));
     });
 
+    // Listen for edited messages
+    newSocket.on('message-edited', (updatedMessage) => {
+      setMessages((prev) =>
+        prev.map((m) => (m._id === updatedMessage._id ? updatedMessage : m))
+      );
+    });
+
     // Load initial messages
     loadMessages();
 
@@ -68,11 +75,12 @@ function ChatInterface({ onLogout }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleSendMessage = async (text, image) => {
+  const handleSendMessage = async (text, image, file) => {
     try {
       const formData = new FormData();
       if (text) formData.append('text', text);
       if (image) formData.append('image', image);
+      if (file) formData.append('file', file);
 
       await axios.post(`${API_URL}/api/messages`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -80,6 +88,17 @@ function ChatInterface({ onLogout }) {
     } catch (err) {
       console.error('Error sending message:', err);
       alert('Failed to send message');
+    }
+  };
+
+  const handleEditMessage = async (messageId, newText) => {
+    try {
+      await axios.put(`${API_URL}/api/messages/${messageId}`, {
+        text: newText,
+      });
+    } catch (err) {
+      console.error('Error editing message:', err);
+      alert('Failed to edit message');
     }
   };
 
@@ -138,6 +157,7 @@ function ChatInterface({ onLogout }) {
         <MessageList
           messages={messages}
           onDeleteMessage={handleDeleteMessage}
+          onEditMessage={handleEditMessage}
           messagesEndRef={messagesEndRef}
         />
         <MessageInput onSendMessage={handleSendMessage} />

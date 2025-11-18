@@ -2,10 +2,17 @@ const mongoose = require('mongoose');
 
 const messageSchema = new mongoose.Schema({
   text: String,
-  // Store image data as CBOR-encoded buffer
+  // Store image/file data as CBOR-encoded buffer (compressed)
   imageData: Buffer,
   imageMimeType: String,
-  timestamp: { type: Date, default: Date.now }
+  // File attachment support
+  fileData: Buffer,
+  fileName: String,
+  fileMimeType: String,
+  fileSize: Number,
+  timestamp: { type: Date, default: Date.now },
+  edited: { type: Boolean, default: false },
+  editedAt: Date
 });
 
 const Message = mongoose.model('Message', messageSchema);

@@ -8,6 +8,7 @@ const path = require('path');
 const cors = require('cors');
 const cbor = require('cbor');
 const rateLimit = require('express-rate-limit');
+const pako = require('pako');
 const Message = require('./models/Message');
 
 const app = express();
@@ -119,19 +120,28 @@ app.get('/api/messages', async (req, res) => {
     const decodedMessages = messages.map(msg => {
       const messageObj = {
         _id: msg._id,
-        text: msg.text,
-        timestamp: msg.timestamp
+        text: typeof msg.text === 'string' ? msg.text : decompressText(msg.text),
+        timestamp: msg.timestamp,
+        edited: msg.edited,
+        editedAt: msg.editedAt
       };
 
       if (msg.imageData) {
         try {
-          // Decode CBOR and convert to base64
-          const decodedData = cbor.decode(msg.imageData);
-          messageObj.imageData = decodedData.toString('base64');
+          // Decode CBOR and decompress
+          const decodedCompressed = cbor.decode(msg.imageData);
+          const decompressed = pako.ungzip(decodedCompressed);
+          messageObj.imageData = Buffer.from(decompressed).toString('base64');
           messageObj.imageMimeType = msg.imageMimeType;
         } catch (err) {
           console.error('Error decoding CBOR image:', err);
         }
+      }
+
+      if (msg.fileData) {
+        messageObj.fileName = msg.fileName;
+        messageObj.fileMimeType = msg.fileMimeType;
+        messageObj.fileSize = msg.fileSize;
       }
 
       return messageObj;
@@ -147,37 +157,96 @@ app.get('/api/messages', async (req, res) => {
 // Upload multer for memory storage
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit for files
 });
 
-// Send a new message (with optional image)
-app.post('/api/messages', uploadLimiter, upload.single('image'), async (req, res) => {
+// Compress text using pako (gzip)
+function compressText(text) {
+  if (!text) return null;
+  const compressed = pako.gzip(text);
+  return cbor.encode(compressed);
+}
+
+// Decompress text using pako
+function decompressText(compressed) {
+  if (!compressed) return null;
+  try {
+    const decoded = cbor.decode(compressed);
+    const decompressed = pako.ungzip(decoded, { to: 'string' });
+    return decompressed;
+  } catch (err) {
+    console.error('Error decompressing text:', err);
+    return null;
+  }
+}
+
+// Send a new message (with optional image/file)
+app.post('/api/messages', uploadLimiter, upload.fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'file', maxCount: 1 }
+]), async (req, res) => {
   try {
     const { text } = req.body;
-    const messageData = { text };
+    const messageData = {};
 
-    // If image is provided, encode it with CBOR
-    if (req.file) {
-      // Encode the buffer using CBOR for storage efficiency
-      const encodedImage = cbor.encode(req.file.buffer);
+    // Compress text if present
+    if (text && text.trim()) {
+      messageData.text = text; // Store original for now, compress if large
+      if (text.length > 100) {
+        // Compress text larger than 100 characters
+        messageData.text = compressText(text);
+      }
+    }
+
+    // Handle image upload with CBOR encoding
+    if (req.files && req.files.image && req.files.image[0]) {
+      const imageFile = req.files.image[0];
+      // Compress and encode the buffer using CBOR
+      const compressed = pako.gzip(imageFile.buffer);
+      const encodedImage = cbor.encode(compressed);
       messageData.imageData = encodedImage;
-      messageData.imageMimeType = req.file.mimetype;
+      messageData.imageMimeType = imageFile.mimetype;
+    }
+
+    // Handle file upload with CBOR encoding
+    if (req.files && req.files.file && req.files.file[0]) {
+      const file = req.files.file[0];
+      // Compress and encode the buffer using CBOR
+      const compressed = pako.gzip(file.buffer);
+      const encodedFile = cbor.encode(compressed);
+      messageData.fileData = encodedFile;
+      messageData.fileName = file.originalname;
+      messageData.fileMimeType = file.mimetype;
+      messageData.fileSize = file.size;
     }
 
     const message = new Message(messageData);
     await message.save();
 
-    // Prepare response with decoded image
+    // Prepare response with decoded image/file
     const response = {
       _id: message._id,
-      text: message.text,
-      timestamp: message.timestamp
+      text: typeof message.text === 'string' ? message.text : decompressText(message.text),
+      timestamp: message.timestamp,
+      edited: message.edited
     };
 
     if (message.imageData) {
-      const decodedData = cbor.decode(message.imageData);
-      response.imageData = decodedData.toString('base64');
-      response.imageMimeType = message.imageMimeType;
+      try {
+        const decodedCompressed = cbor.decode(message.imageData);
+        const decompressed = pako.ungzip(decodedCompressed);
+        response.imageData = Buffer.from(decompressed).toString('base64');
+        response.imageMimeType = message.imageMimeType;
+      } catch (err) {
+        console.error('Error decoding image:', err);
+      }
+    }
+
+    if (message.fileData) {
+      response.fileName = message.fileName;
+      response.fileMimeType = message.fileMimeType;
+      response.fileSize = message.fileSize;
+      // We'll send file data on demand, not in list
     }
 
     // Emit to all connected clients
@@ -187,6 +256,85 @@ app.post('/api/messages', uploadLimiter, upload.single('image'), async (req, res
   } catch (err) {
     console.error('Error creating message:', err);
     res.status(500).json({ message: 'Failed to create message' });
+  }
+});
+
+// Edit a message
+app.put('/api/messages/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { text } = req.body;
+    
+    const message = await Message.findById(id);
+    if (!message) {
+      return res.status(404).json({ message: 'Message not found' });
+    }
+
+    // Update text with compression if needed
+    if (text && text.trim()) {
+      message.text = text.length > 100 ? compressText(text) : text;
+      message.edited = true;
+      message.editedAt = new Date();
+    }
+
+    await message.save();
+
+    // Prepare response
+    const response = {
+      _id: message._id,
+      text: typeof message.text === 'string' ? message.text : decompressText(message.text),
+      timestamp: message.timestamp,
+      edited: message.edited,
+      editedAt: message.editedAt
+    };
+
+    if (message.imageData) {
+      try {
+        const decodedCompressed = cbor.decode(message.imageData);
+        const decompressed = pako.ungzip(decodedCompressed);
+        response.imageData = Buffer.from(decompressed).toString('base64');
+        response.imageMimeType = message.imageMimeType;
+      } catch (err) {
+        console.error('Error decoding image:', err);
+      }
+    }
+
+    if (message.fileData) {
+      response.fileName = message.fileName;
+      response.fileMimeType = message.fileMimeType;
+      response.fileSize = message.fileSize;
+    }
+
+    // Emit to all connected clients
+    io.emit('message-edited', response);
+
+    res.json(response);
+  } catch (err) {
+    console.error('Error editing message:', err);
+    res.status(500).json({ message: 'Failed to edit message' });
+  }
+});
+
+// Download file attachment
+app.get('/api/messages/:id/file', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const message = await Message.findById(id);
+    
+    if (!message || !message.fileData) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+
+    // Decode and decompress file
+    const decodedCompressed = cbor.decode(message.fileData);
+    const decompressed = pako.ungzip(decodedCompressed);
+
+    res.setHeader('Content-Type', message.fileMimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${message.fileName}"`);
+    res.send(Buffer.from(decompressed));
+  } catch (err) {
+    console.error('Error downloading file:', err);
+    res.status(500).json({ message: 'Failed to download file' });
   }
 });
 
