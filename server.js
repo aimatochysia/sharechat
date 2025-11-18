@@ -5,156 +5,217 @@ const socketIo = require('socket.io');
 const http = require('http');
 const multer = require('multer');
 const path = require('path');
+const cors = require('cors');
+const cbor = require('cbor');
 const Message = require('./models/Message');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-const User = require('./models/User');
-
-// Secret key for JWT (store in .env in production)
-const JWT_SECRET = 'your-secret-key';
-
-// User registration route
-app.post('/register', async (req, res) => {
-  const { username, password } = req.body;
-  try {
-    const userExists = await User.findOne({ username });
-    if (userExists) return res.status(400).json({ message: 'User already exists' });
-
-    const user = new User({ username, password });
-    await user.save();
-    res.status(201).json({ message: 'User registered successfully' });
-  } catch (err) {
-    res.status(500).json({ message: 'Error registering user' });
+const io = socketIo(server, {
+  cors: {
+    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    methods: ['GET', 'POST']
   }
 });
 
-// User login route
-app.post('/login', async (req, res) => {
-  const { username, password } = req.body;
-  try {
-    const user = await User.findOne({ username });
-    if (!user) return res.status(400).json({ message: 'User does not exist' });
+// Get password from environment variable
+const CHAT_PASSWORD = process.env.CHAT_PASSWORD;
 
-    const isMatch = await user.matchPassword(password);
-    if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
-
-    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '1h' });
-    res.json({ token });
-  } catch (err) {
-    res.status(500).json({ message: 'Error logging in' });
-  }
-});
-
-// Middleware to protect routes
-const protect = (req, res, next) => {
-  const token = req.header('Authorization')?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'No token, authorization denied' });
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (err) {
-    res.status(401).json({ message: 'Token is not valid' });
-  }
-};
+if (!CHAT_PASSWORD) {
+  console.error('ERROR: CHAT_PASSWORD environment variable not set!');
+  process.exit(1);
+}
 
 // MongoDB connection
-mongoose.connect(process.env.MONGO_URI, {
+const MONGO_URI = process.env.MONGO_URI;
+if (!MONGO_URI) {
+  console.error('ERROR: MONGO_URI environment variable not set!');
+  process.exit(1);
+}
+
+mongoose.connect(MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 }).then(() => {
   console.log('MongoDB connected');
 }).catch(err => {
   console.error('MongoDB connection error:', err);
+  process.exit(1);
 });
 
 // Middleware
-app.use(express.json());
+app.use(cors({
+  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  credentials: true
+}));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
-// Image upload setup using multer
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
+// Authentication endpoint
+app.post('/api/auth', (req, res) => {
+  const { password } = req.body;
+  if (password === CHAT_PASSWORD) {
+    res.json({ success: true });
+  } else {
+    res.status(401).json({ success: false, message: 'Invalid password' });
   }
 });
-const upload = multer({ storage });
 
-// Routes
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-const fs = require('fs');
-
-// Store file upload date in the database
-const imageUploadDate = Date.now();
-
-// Upload route
-app.post('/upload', upload.single('image'), async (req, res) => {
-  const imageUrl = `/uploads/${req.file.filename}`;
-  const message = new Message({
-    sender: req.body.sender,
-    text: req.body.text || '',
-    image: imageUrl,
-    imageUploadDate // Save the upload date of the image
-  });
-
-  await message.save();
-  res.json({ imageUrl });
-});
-
-// Delete images older than 90 days
-setInterval(async () => {
-  const expirationDate = Date.now() - 90 * 24 * 60 * 60 * 1000; // 90 days in milliseconds
-  const messages = await Message.find({ imageUploadDate: { $lt: expirationDate } });
-
-  messages.forEach((message) => {
-    if (message.image) {
-      const imagePath = path.join(__dirname, 'uploads', path.basename(message.image));
-      fs.unlink(imagePath, (err) => {
-        if (err) console.error(`Failed to delete image ${message.image}:`, err);
-        else console.log(`Deleted expired image: ${message.image}`);
-      });
-    }
-  });
-}, 24 * 60 * 60 * 1000); // Run this check once every 24 hours
-
-// Get all messages
-app.get('/messages', async (req, res) => {
+// Get all messages with pagination and search
+app.get('/api/messages', async (req, res) => {
   try {
-    const messages = await Message.find().sort({ timestamp: 1 });
-    res.json(messages);
+    const { search, date, limit = 100, skip = 0 } = req.query;
+    let query = {};
+
+    // Search in text content
+    if (search) {
+      query.text = { $regex: search, $options: 'i' };
+    }
+
+    // Filter by date
+    if (date) {
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      query.timestamp = { $gte: startOfDay, $lte: endOfDay };
+    }
+
+    const messages = await Message.find(query)
+      .sort({ timestamp: 1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip));
+
+    // Decode CBOR data for transmission
+    const decodedMessages = messages.map(msg => {
+      const messageObj = {
+        _id: msg._id,
+        text: msg.text,
+        timestamp: msg.timestamp
+      };
+
+      if (msg.imageData) {
+        try {
+          // Decode CBOR and convert to base64
+          const decodedData = cbor.decode(msg.imageData);
+          messageObj.imageData = decodedData.toString('base64');
+          messageObj.imageMimeType = msg.imageMimeType;
+        } catch (err) {
+          console.error('Error decoding CBOR image:', err);
+        }
+      }
+
+      return messageObj;
+    });
+
+    res.json(decodedMessages);
   } catch (err) {
+    console.error('Error fetching messages:', err);
     res.status(500).json({ message: 'Failed to fetch messages' });
+  }
+});
+
+// Upload multer for memory storage
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+});
+
+// Send a new message (with optional image)
+app.post('/api/messages', upload.single('image'), async (req, res) => {
+  try {
+    const { text } = req.body;
+    const messageData = { text };
+
+    // If image is provided, encode it with CBOR
+    if (req.file) {
+      // Encode the buffer using CBOR for storage efficiency
+      const encodedImage = cbor.encode(req.file.buffer);
+      messageData.imageData = encodedImage;
+      messageData.imageMimeType = req.file.mimetype;
+    }
+
+    const message = new Message(messageData);
+    await message.save();
+
+    // Prepare response with decoded image
+    const response = {
+      _id: message._id,
+      text: message.text,
+      timestamp: message.timestamp
+    };
+
+    if (message.imageData) {
+      const decodedData = cbor.decode(message.imageData);
+      response.imageData = decodedData.toString('base64');
+      response.imageMimeType = message.imageMimeType;
+    }
+
+    // Emit to all connected clients
+    io.emit('message', response);
+
+    res.status(201).json(response);
+  } catch (err) {
+    console.error('Error creating message:', err);
+    res.status(500).json({ message: 'Failed to create message' });
+  }
+});
+
+// Delete a message
+app.delete('/api/messages/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const message = await Message.findByIdAndDelete(id);
+    
+    if (!message) {
+      return res.status(404).json({ message: 'Message not found' });
+    }
+
+    // Emit deletion to all connected clients
+    io.emit('message-deleted', id);
+
+    res.json({ success: true, message: 'Message deleted' });
+  } catch (err) {
+    console.error('Error deleting message:', err);
+    res.status(500).json({ message: 'Failed to delete message' });
+  }
+});
+
+// Get date range of messages (for date picker)
+app.get('/api/messages/dates', async (req, res) => {
+  try {
+    const oldestMessage = await Message.findOne().sort({ timestamp: 1 });
+    const newestMessage = await Message.findOne().sort({ timestamp: -1 });
+
+    res.json({
+      oldest: oldestMessage?.timestamp || new Date(),
+      newest: newestMessage?.timestamp || new Date()
+    });
+  } catch (err) {
+    console.error('Error fetching date range:', err);
+    res.status(500).json({ message: 'Failed to fetch date range' });
   }
 });
 
 // Socket.io for real-time communication
 io.on('connection', (socket) => {
-  console.log('A user connected');
-
-  
-  socket.on('new-message', async (messageData) => {
-    const message = new Message(messageData);
-    await message.save();
-    io.emit('message', message);
-  });
+  console.log('A user connected:', socket.id);
 
   socket.on('disconnect', () => {
-    console.log('User disconnected');
+    console.log('User disconnected:', socket.id);
   });
 });
 
+// Serve React app in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, 'client/dist')));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'client/dist/index.html'));
+  });
+}
+
 // Start the server
-server.listen(3000, () => {
-  console.log('Server is running on http://localhost:3000');
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });

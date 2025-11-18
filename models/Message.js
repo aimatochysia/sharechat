@@ -1,9 +1,10 @@
 const mongoose = require('mongoose');
 
 const messageSchema = new mongoose.Schema({
-  sender: String,
   text: String,
-  image: String,
+  // Store image data as CBOR-encoded buffer
+  imageData: Buffer,
+  imageMimeType: String,
   timestamp: { type: Date, default: Date.now }
 });
 
