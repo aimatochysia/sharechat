@@ -126,8 +126,7 @@ function ChatInterface({ onLogout, token }) {
 
       await apiClient().post('/api/messages', formData, {
         headers: { 
-          'Content-Type': 'multipart/form-data',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'multipart/form-data'
         },
       });
     } catch (err) {

@@ -8,6 +8,10 @@ import {
   Typography,
   Alert,
   Container,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import LockIcon from '@mui/icons-material/Lock';
 import axios from 'axios';
@@ -18,12 +22,11 @@ function Login({ onLogin }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [warning, setWarning] = useState('');
+  const [warningDialog, setWarningDialog] = useState({ open: false, days: 0, token: null });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setWarning('');
     setLoading(true);
 
     try {
@@ -32,11 +35,12 @@ function Login({ onLogin }) {
         // Check if password is expiring soon (within 14 days)
         const daysUntilExpiry = response.data.passwordExpiresInDays;
         if (daysUntilExpiry !== null && daysUntilExpiry <= 14) {
-          setWarning(`Password expires in ${daysUntilExpiry} days. Please update your password soon.`);
-          // Still allow login but show warning
-          setTimeout(() => {
-            onLogin(response.data.token);
-          }, 3000);
+          // Show warning dialog and let user proceed
+          setWarningDialog({ 
+            open: true, 
+            days: daysUntilExpiry, 
+            token: response.data.token 
+          });
         } else {
           onLogin(response.data.token);
         }
@@ -52,6 +56,12 @@ function Login({ onLogin }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleWarningClose = () => {
+    const token = warningDialog.token;
+    setWarningDialog({ open: false, days: 0, token: null });
+    onLogin(token);
   };
 
   return (
@@ -95,12 +105,6 @@ function Login({ onLogin }) {
                 </Alert>
               )}
 
-              {warning && (
-                <Alert severity="warning" sx={{ mt: 2 }}>
-                  {warning}
-                </Alert>
-              )}
-
               <Button
                 fullWidth
                 type="submit"
@@ -115,6 +119,20 @@ function Login({ onLogin }) {
           </CardContent>
         </Card>
       </Box>
+
+      <Dialog open={warningDialog.open} onClose={handleWarningClose}>
+        <DialogTitle>Password Expiration Warning</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mt: 1 }}>
+            Your password expires in {warningDialog.days} days. Please update your password soon by changing the CHAT_PASSWORD and PASSWORD_SET_DATE environment variables.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleWarningClose} variant="contained" autoFocus>
+            Continue to Chat
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 }

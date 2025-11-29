@@ -33,8 +33,20 @@ const io = socketIo(server, {
 
 // Get password from environment variable
 const CHAT_PASSWORD = process.env.CHAT_PASSWORD;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-default-secret-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
+
+// Validate JWT_SECRET in production
+if (process.env.NODE_ENV === 'production' && !JWT_SECRET) {
+  console.error('ERROR: JWT_SECRET environment variable must be set in production!');
+  process.exit(1);
+}
+
+// Use a default secret only in development (with warning)
+const jwtSecretKey = JWT_SECRET || (() => {
+  console.warn('WARNING: Using default JWT_SECRET. Set JWT_SECRET in production!');
+  return 'dev-only-default-secret-change-in-production';
+})();
 
 // Password expiration settings (default: 90 days / 3 months)
 const PASSWORD_EXPIRY_DAYS = parseInt(process.env.PASSWORD_EXPIRY_DAYS, 10) || 90;
@@ -62,7 +74,7 @@ const isPasswordExpired = () => {
 const generateToken = () => {
   return jwt.sign(
     { authenticated: true, iat: Math.floor(Date.now() / 1000) },
-    JWT_SECRET,
+    jwtSecretKey,
     { expiresIn: JWT_EXPIRY }
   );
 };
@@ -77,7 +89,7 @@ const verifyToken = (req, res, next) => {
   }
 
   try {
-    jwt.verify(token, JWT_SECRET);
+    jwt.verify(token, jwtSecretKey);
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
@@ -96,7 +108,7 @@ const authenticateSocket = (socket, next) => {
   }
   
   try {
-    jwt.verify(token, JWT_SECRET);
+    jwt.verify(token, jwtSecretKey);
     next();
   } catch (err) {
     return next(new Error('Invalid or expired token'));
@@ -122,12 +134,31 @@ mongoose.connect(MONGO_URI, {
   process.exit(1);
 });
 
-// Security middleware
-app.use(helmet({
-  contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false,
-  crossOriginEmbedderPolicy: false,
-  crossOriginResourcePolicy: { policy: 'cross-origin' }
-}));
+// Security middleware - configure CSP appropriately for each environment
+const getHelmetConfig = () => {
+  const config = {
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' }
+  };
+  
+  // In development, allow inline scripts and styles for hot reloading
+  if (process.env.NODE_ENV !== 'production') {
+    config.contentSecurityPolicy = {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "blob:"],
+        connectSrc: ["'self'", "ws:", "wss:"],
+        fontSrc: ["'self'", "data:"],
+      }
+    };
+  }
+  
+  return config;
+};
+
+app.use(helmet(getHelmetConfig()));
 
 // Middleware
 app.use(cors({
