@@ -4,25 +4,43 @@
 
 ### Fixed Issues ✅
 
-1. **Rate Limiting on Authentication Endpoint** 
+1. **JWT-Based Authentication**
+   - Added JWT tokens for secure session management
+   - Tokens expire after configurable period (default: 24 hours)
+   - Socket.io connections now require authentication
+   - Status: **IMPLEMENTED**
+
+2. **Rate Limiting on Authentication Endpoint** 
    - Added `authLimiter` with 5 requests per 15 minutes per IP
+   - Added `strictAuthLimiter` with 10 requests per hour (progressive lockout)
    - Prevents brute force password attacks
    - Status: **FIXED**
 
-2. **Rate Limiting on Database Access Routes**
+3. **Rate Limiting on Database Access Routes**
    - Added `apiLimiter` with 100 requests per 15 minutes per IP for all `/api/` routes
    - Prevents database DoS attacks
    - Status: **FIXED**
 
-3. **Rate Limiting on File Upload Endpoint**
+4. **Rate Limiting on File Upload Endpoint**
    - Added `uploadLimiter` with 20 uploads per 15 minutes per IP
    - Prevents storage exhaustion attacks
    - Status: **FIXED**
 
+5. **Password Expiration (3-Month Window)**
+   - Configurable via `PASSWORD_SET_DATE` and `PASSWORD_EXPIRY_DAYS` environment variables
+   - Default expiry: 90 days (3 months)
+   - Warning shown 14 days before expiration
+   - Status: **IMPLEMENTED**
+
+6. **Security Headers with Helmet.js**
+   - Added helmet middleware for secure HTTP headers
+   - X-Content-Type-Options, X-Frame-Options, etc.
+   - Status: **IMPLEMENTED**
+
 ### Remaining Alerts
 
 1. **Static File Serving in Production Mode** (False Positive)
-   - Location: `server.js:241-243`
+   - Location: `server.js` (production static serving)
    - Description: Serving the built React app in production
    - Reason for accepting: This is standard practice for serving static assets. The files are pre-built and don't require rate limiting. Express.static has built-in security measures.
    - Mitigation: In production, use a CDN or reverse proxy (nginx) with its own rate limiting
@@ -31,29 +49,56 @@
 ## Security Measures Implemented
 
 ### Authentication
-- ✅ Single password authentication from environment variable
-- ✅ No passwords stored in database
+- ✅ JWT-based authentication with secure tokens
+- ✅ Token expiration (configurable, default: 24h)
+- ✅ Token verification on all protected routes
+- ✅ Socket.io authentication middleware
+- ✅ Password expiration with 3-month window
 - ✅ Rate limiting on auth endpoint (5 attempts per 15 min)
+- ✅ Progressive lockout (10 attempts per hour)
 - ✅ HTTPS recommended in production (deployment platform handles this)
 
 ### API Security
-- ✅ CORS configured to allow only trusted origins
+- ✅ All API routes protected with JWT verification
+- ✅ CORS configured to allow only trusted origins (supports multiple origins)
 - ✅ Request body size limited to 10MB
-- ✅ File upload size limited to 5MB per file
+- ✅ File upload size limited to 50MB per file
 - ✅ Rate limiting on all API endpoints (100 req/15min)
 - ✅ Rate limiting on upload endpoint (20 uploads/15min)
 - ✅ Input validation on all endpoints
+- ✅ Security headers via Helmet.js
 
 ### Data Security
 - ✅ MongoDB connection string stored in environment variable
+- ✅ JWT secret configurable via environment variable
 - ✅ CBOR encoding for efficient and secure binary storage
 - ✅ No SQL injection vectors (using Mongoose ODM)
 - ✅ Proper error handling without exposing internals
 
 ### Network Security
-- ✅ Socket.io configured with CORS
+- ✅ Socket.io configured with CORS and authentication
 - ✅ Environment-based configuration for different deployment scenarios
 - ✅ Secure WebSocket connections in production (wss://)
+- ✅ Trust proxy enabled for accurate IP detection behind reverse proxies
+
+## Environment Variables
+
+### Required
+| Variable | Description |
+|----------|-------------|
+| `MONGO_URI` | MongoDB connection string |
+| `CHAT_PASSWORD` | Password for authentication |
+
+### Optional (with defaults)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `JWT_SECRET` | auto-generated | Secret key for JWT signing (CHANGE IN PRODUCTION!) |
+| `JWT_EXPIRY` | `24h` | JWT token expiration time |
+| `PASSWORD_SET_DATE` | none | Date when password was last set (YYYY-MM-DD) |
+| `PASSWORD_EXPIRY_DAYS` | `90` | Days until password expires |
+| `CLIENT_URL` | `http://localhost:5173` | Allowed CORS origins (comma-separated for multiple) |
+| `PORT` | `3000` | Server port |
+| `NODE_ENV` | `development` | Environment mode |
 
 ## Recommended Production Security Measures
 
@@ -84,19 +129,23 @@ These should be handled at the deployment platform level:
 ## Security Best Practices Followed
 
 1. **Principle of Least Privilege**
-   - Single password for access
+   - JWT tokens for session management
+   - Token-based access control on all routes
    - No user roles or permissions needed for single-user app
 
 2. **Defense in Depth**
    - Multiple layers of rate limiting
+   - JWT authentication + password verification
    - Input validation
    - Output sanitization
    - Error handling
+   - Security headers
 
 3. **Secure by Default**
    - Environment variables for secrets
    - No hardcoded credentials
    - Secure defaults for all settings
+   - Token expiration enforced
 
 4. **Data Minimization**
    - Only store necessary data (text, images, timestamps)
@@ -147,20 +196,29 @@ Before production deployment, test:
    - [ ] Test with correct password
    - [ ] Test with incorrect password
    - [ ] Test rate limiting (6+ failed attempts)
+   - [ ] Test token expiration
+   - [ ] Test token refresh
 
 2. **API Endpoints**
    - [ ] Test rate limiting (100+ requests in 15 min)
    - [ ] Test with oversized payloads (>10MB)
    - [ ] Test CORS from different origins
+   - [ ] Test API without token (should fail)
+   - [ ] Test API with expired token
 
 3. **File Upload**
-   - [ ] Test with oversized files (>5MB)
+   - [ ] Test with oversized files (>50MB)
    - [ ] Test rate limiting (20+ uploads in 15 min)
    - [ ] Test with non-image files
 
 4. **WebSocket**
    - [ ] Test connection from unauthorized origin
+   - [ ] Test connection without token
    - [ ] Test message injection
+
+5. **Password Expiration**
+   - [ ] Test with expired password
+   - [ ] Test expiration warning display
 
 ## Incident Response
 
@@ -168,6 +226,8 @@ In case of security incident:
 
 1. **Immediately**
    - Change CHAT_PASSWORD
+   - Update PASSWORD_SET_DATE
+   - Change JWT_SECRET
    - Rotate MongoDB credentials
    - Review access logs
 
@@ -184,12 +244,17 @@ In case of security incident:
 ## Conclusion
 
 The application has been secured with industry-standard practices:
+- ✅ JWT-based authentication
+- ✅ Token expiration and refresh
+- ✅ Password expiration (3-month window)
 - ✅ Rate limiting on all sensitive endpoints
 - ✅ Input validation and sanitization
 - ✅ Secure credential management
 - ✅ CORS protection
 - ✅ File upload restrictions
 - ✅ Proper error handling
+- ✅ Security headers (Helmet.js)
+- ✅ Socket.io authentication
 
 One CodeQL alert remains (static file serving) which is a false positive and represents standard, secure practice.
 

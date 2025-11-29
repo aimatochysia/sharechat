@@ -9,24 +9,113 @@ const cors = require('cors');
 const cbor = require('cbor');
 const rateLimit = require('express-rate-limit');
 const pako = require('pako');
+const jwt = require('jsonwebtoken');
+const helmet = require('helmet');
 const Message = require('./models/Message');
 
 const app = express();
 const server = http.createServer(app);
+
+// Security: Parse allowed origins for CORS
+const getAllowedOrigins = () => {
+  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+  // Support multiple origins separated by comma
+  return clientUrl.split(',').map(url => url.trim());
+};
+
 const io = socketIo(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
-    methods: ['GET', 'POST']
+    origin: getAllowedOrigins(),
+    methods: ['GET', 'POST'],
+    credentials: true
   }
 });
 
 // Get password from environment variable
 const CHAT_PASSWORD = process.env.CHAT_PASSWORD;
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
+
+// Validate JWT_SECRET in production
+if (process.env.NODE_ENV === 'production' && !JWT_SECRET) {
+  console.error('ERROR: JWT_SECRET environment variable must be set in production!');
+  process.exit(1);
+}
+
+// Use a default secret only in development (with warning)
+const jwtSecretKey = JWT_SECRET || (() => {
+  console.warn('WARNING: Using default JWT_SECRET. Set JWT_SECRET in production!');
+  return 'dev-only-default-secret-change-in-production';
+})();
+
+// Password expiration settings (default: 90 days / 3 months)
+const PASSWORD_EXPIRY_DAYS = parseInt(process.env.PASSWORD_EXPIRY_DAYS, 10) || 90;
+const PASSWORD_SET_DATE = process.env.PASSWORD_SET_DATE ? new Date(process.env.PASSWORD_SET_DATE) : null;
 
 if (!CHAT_PASSWORD) {
   console.error('ERROR: CHAT_PASSWORD environment variable not set!');
   process.exit(1);
 }
+
+// Check if password has expired
+const isPasswordExpired = () => {
+  if (!PASSWORD_SET_DATE) {
+    // If no date set, password is not expired (for backward compatibility)
+    // Log a warning to encourage setting the date
+    console.warn('WARNING: PASSWORD_SET_DATE not set. Password expiration check disabled.');
+    return false;
+  }
+  const expiryDate = new Date(PASSWORD_SET_DATE);
+  expiryDate.setDate(expiryDate.getDate() + PASSWORD_EXPIRY_DAYS);
+  return new Date() > expiryDate;
+};
+
+// Generate JWT token
+const generateToken = () => {
+  return jwt.sign(
+    { authenticated: true, iat: Math.floor(Date.now() / 1000) },
+    jwtSecretKey,
+    { expiresIn: JWT_EXPIRY }
+  );
+};
+
+// Verify JWT token middleware
+const verifyToken = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+  if (!token) {
+    return res.status(401).json({ success: false, message: 'Access denied. No token provided.' });
+  }
+
+  try {
+    jwt.verify(token, jwtSecretKey);
+    next();
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ success: false, message: 'Token expired. Please login again.' });
+    }
+    return res.status(403).json({ success: false, message: 'Invalid token.' });
+  }
+};
+
+// Socket.io authentication middleware
+const authenticateSocket = (socket, next) => {
+  const token = socket.handshake.auth?.token;
+  
+  if (!token) {
+    return next(new Error('Authentication required'));
+  }
+  
+  try {
+    jwt.verify(token, jwtSecretKey);
+    next();
+  } catch (err) {
+    return next(new Error('Invalid or expired token'));
+  }
+};
+
+io.use(authenticateSocket);
 
 // MongoDB connection
 const MONGO_URI = process.env.MONGO_URI;
@@ -45,35 +134,78 @@ mongoose.connect(MONGO_URI, {
   process.exit(1);
 });
 
+// Security middleware - configure CSP appropriately for each environment
+const getHelmetConfig = () => {
+  const config = {
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' }
+  };
+  
+  // In development, allow inline scripts and styles for hot reloading
+  if (process.env.NODE_ENV !== 'production') {
+    config.contentSecurityPolicy = {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "blob:"],
+        connectSrc: ["'self'", "ws:", "wss:"],
+        fontSrc: ["'self'", "data:"],
+      }
+    };
+  }
+  
+  return config;
+};
+
+app.use(helmet(getHelmetConfig()));
+
 // Middleware
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: getAllowedOrigins(),
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
+// Trust proxy for accurate IP detection behind reverse proxies
+app.set('trust proxy', 1);
+
 // Rate limiting middleware
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.',
+  message: { success: false, message: 'Too many requests from this IP, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => req.ip, // Use IP for rate limiting
 });
 
+// Stricter rate limiting for authentication (anti-brute force)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5, // Limit each IP to 5 auth attempts per windowMs
-  message: 'Too many authentication attempts, please try again later.',
+  message: { success: false, message: 'Too many authentication attempts, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => req.ip,
+  skipSuccessfulRequests: false, // Count all requests including successful ones
+});
+
+// Even stricter limiter for repeated failed attempts (progressive lockout)
+const strictAuthLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // Maximum 10 attempts per hour
+  message: { success: false, message: 'Too many failed authentication attempts. Account locked for 1 hour.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip,
 });
 
 const uploadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 20, // Limit each IP to 20 uploads per windowMs
-  message: 'Too many uploads, please try again later.',
+  message: { success: false, message: 'Too many uploads, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -81,18 +213,54 @@ const uploadLimiter = rateLimit({
 // Apply rate limiting to API routes
 app.use('/api/', apiLimiter);
 
-// Authentication endpoint
-app.post('/api/auth', authLimiter, (req, res) => {
+// Authentication endpoint with JWT token generation
+app.post('/api/auth', authLimiter, strictAuthLimiter, (req, res) => {
   const { password } = req.body;
+  
+  // Check password expiration first
+  if (isPasswordExpired()) {
+    return res.status(403).json({ 
+      success: false, 
+      message: 'Password has expired. Please update CHAT_PASSWORD and PASSWORD_SET_DATE in your environment variables.',
+      expired: true
+    });
+  }
+  
   if (password === CHAT_PASSWORD) {
-    res.json({ success: true });
+    const token = generateToken();
+    
+    // Calculate days until password expires (if date is set)
+    let daysUntilExpiry = null;
+    if (PASSWORD_SET_DATE) {
+      const expiryDate = new Date(PASSWORD_SET_DATE);
+      expiryDate.setDate(expiryDate.getDate() + PASSWORD_EXPIRY_DAYS);
+      daysUntilExpiry = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
+    }
+    
+    res.json({ 
+      success: true, 
+      token,
+      expiresIn: JWT_EXPIRY,
+      passwordExpiresInDays: daysUntilExpiry
+    });
   } else {
     res.status(401).json({ success: false, message: 'Invalid password' });
   }
 });
 
-// Get all messages with pagination and search
-app.get('/api/messages', async (req, res) => {
+// Token refresh endpoint
+app.post('/api/auth/refresh', verifyToken, (req, res) => {
+  const token = generateToken();
+  res.json({ success: true, token, expiresIn: JWT_EXPIRY });
+});
+
+// Verify token endpoint (for frontend to check if token is still valid)
+app.get('/api/auth/verify', verifyToken, (req, res) => {
+  res.json({ success: true, valid: true });
+});
+
+// Get all messages with pagination and search (protected)
+app.get('/api/messages', verifyToken, async (req, res) => {
   try {
     const { search, date, limit = 100, skip = 0 } = req.query;
     let query = {};
@@ -180,8 +348,8 @@ function decompressText(compressed) {
   }
 }
 
-// Send a new message (with optional image/file)
-app.post('/api/messages', uploadLimiter, upload.fields([
+// Send a new message (with optional image/file) - protected
+app.post('/api/messages', verifyToken, uploadLimiter, upload.fields([
   { name: 'image', maxCount: 1 },
   { name: 'file', maxCount: 1 }
 ]), async (req, res) => {
@@ -259,8 +427,8 @@ app.post('/api/messages', uploadLimiter, upload.fields([
   }
 });
 
-// Edit a message
-app.put('/api/messages/:id', async (req, res) => {
+// Edit a message (protected)
+app.put('/api/messages/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { text } = req.body;
@@ -315,8 +483,8 @@ app.put('/api/messages/:id', async (req, res) => {
   }
 });
 
-// Download file attachment
-app.get('/api/messages/:id/file', async (req, res) => {
+// Download file attachment (protected)
+app.get('/api/messages/:id/file', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const message = await Message.findById(id);
@@ -338,8 +506,8 @@ app.get('/api/messages/:id/file', async (req, res) => {
   }
 });
 
-// Delete a message
-app.delete('/api/messages/:id', async (req, res) => {
+// Delete a message (protected)
+app.delete('/api/messages/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const message = await Message.findByIdAndDelete(id);
@@ -358,8 +526,8 @@ app.delete('/api/messages/:id', async (req, res) => {
   }
 });
 
-// Get date range of messages (for date picker)
-app.get('/api/messages/dates', async (req, res) => {
+// Get date range of messages (for date picker) - protected
+app.get('/api/messages/dates', verifyToken, async (req, res) => {
   try {
     const oldestMessage = await Message.findOne().sort({ timestamp: 1 });
     const newestMessage = await Message.findOne().sort({ timestamp: -1 });

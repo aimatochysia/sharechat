@@ -8,6 +8,10 @@ import {
   Typography,
   Alert,
   Container,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import LockIcon from '@mui/icons-material/Lock';
 import axios from 'axios';
@@ -18,6 +22,7 @@ function Login({ onLogin }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [warningDialog, setWarningDialog] = useState({ open: false, days: 0, token: null });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -27,13 +32,36 @@ function Login({ onLogin }) {
     try {
       const response = await axios.post(`${API_URL}/api/auth`, { password });
       if (response.data.success) {
-        onLogin();
+        // Check if password is expiring soon (within 14 days)
+        const daysUntilExpiry = response.data.passwordExpiresInDays;
+        if (daysUntilExpiry !== null && daysUntilExpiry <= 14) {
+          // Show warning dialog and let user proceed
+          setWarningDialog({ 
+            open: true, 
+            days: daysUntilExpiry, 
+            token: response.data.token 
+          });
+        } else {
+          onLogin(response.data.token);
+        }
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Invalid password');
+      if (err.response?.data?.expired) {
+        setError('Password has expired. Please contact the administrator to update the password.');
+      } else if (err.response?.status === 429) {
+        setError('Too many login attempts. Please try again later.');
+      } else {
+        setError(err.response?.data?.message || 'Invalid password');
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleWarningClose = () => {
+    const token = warningDialog.token;
+    setWarningDialog({ open: false, days: 0, token: null });
+    onLogin(token);
   };
 
   return (
@@ -91,6 +119,20 @@ function Login({ onLogin }) {
           </CardContent>
         </Card>
       </Box>
+
+      <Dialog open={warningDialog.open} onClose={handleWarningClose}>
+        <DialogTitle>Password Expiration Warning</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mt: 1 }}>
+            Your password expires in {warningDialog.days} days. Please update your password soon by changing the CHAT_PASSWORD and PASSWORD_SET_DATE environment variables.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleWarningClose} variant="contained" autoFocus>
+            Continue to Chat
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 }

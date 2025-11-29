@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   AppBar,
@@ -19,18 +19,75 @@ import DatePickerDialog from './DatePickerDialog';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-function ChatInterface({ onLogout }) {
+function ChatInterface({ onLogout, token }) {
   const [messages, setMessages] = useState([]);
-  const [socket, setSocket] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const messagesEndRef = useRef(null);
+  const socketRef = useRef(null);
 
+  // Create axios instance with auth header
+  const apiClient = useCallback(() => {
+    return axios.create({
+      baseURL: API_URL,
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+  }, [token]);
+
+  // Handle 401 errors (token expired)
+  const handleApiError = useCallback((err) => {
+    if (err.response?.status === 401) {
+      console.log('Token expired, logging out...');
+      onLogout();
+    }
+  }, [onLogout]);
+
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, []);
+
+  const loadMessages = useCallback(async (query = {}) => {
+    try {
+      const params = new URLSearchParams(query);
+      const response = await apiClient().get(`/api/messages?${params}`);
+      setMessages(response.data);
+    } catch (err) {
+      console.error('Error loading messages:', err);
+      handleApiError(err);
+    }
+  }, [apiClient, handleApiError]);
+
+  // Load initial messages
   useEffect(() => {
-    // Connect to socket.io
-    const newSocket = io(API_URL);
-    setSocket(newSocket);
+    const fetchInitialMessages = async () => {
+      try {
+        const response = await apiClient().get('/api/messages');
+        setMessages(response.data);
+      } catch (err) {
+        console.error('Error loading messages:', err);
+        handleApiError(err);
+      }
+    };
+    fetchInitialMessages();
+  }, [apiClient, handleApiError]);
+
+  // Connect to socket.io with authentication
+  useEffect(() => {
+    const newSocket = io(API_URL, {
+      auth: {
+        token: token
+      }
+    });
+
+    newSocket.on('connect_error', (err) => {
+      console.error('Socket connection error:', err.message);
+      if (err.message === 'Authentication required' || err.message === 'Invalid or expired token') {
+        onLogout();
+      }
+    });
 
     // Listen for new messages
     newSocket.on('message', (message) => {
@@ -49,31 +106,16 @@ function ChatInterface({ onLogout }) {
       );
     });
 
-    // Load initial messages
-    loadMessages();
+    socketRef.current = newSocket;
 
     return () => {
       newSocket.close();
     };
-  }, []);
+  }, [token, onLogout]);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
-
-  const loadMessages = async (query = {}) => {
-    try {
-      const params = new URLSearchParams(query);
-      const response = await axios.get(`${API_URL}/api/messages?${params}`);
-      setMessages(response.data);
-    } catch (err) {
-      console.error('Error loading messages:', err);
-    }
-  };
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, [messages, scrollToBottom]);
 
   const handleSendMessage = async (text, image, file) => {
     try {
@@ -82,31 +124,36 @@ function ChatInterface({ onLogout }) {
       if (image) formData.append('image', image);
       if (file) formData.append('file', file);
 
-      await axios.post(`${API_URL}/api/messages`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+      await apiClient().post('/api/messages', formData, {
+        headers: { 
+          'Content-Type': 'multipart/form-data'
+        },
       });
     } catch (err) {
       console.error('Error sending message:', err);
+      handleApiError(err);
       alert('Failed to send message');
     }
   };
 
   const handleEditMessage = async (messageId, newText) => {
     try {
-      await axios.put(`${API_URL}/api/messages/${messageId}`, {
+      await apiClient().put(`/api/messages/${messageId}`, {
         text: newText,
       });
     } catch (err) {
       console.error('Error editing message:', err);
+      handleApiError(err);
       alert('Failed to edit message');
     }
   };
 
   const handleDeleteMessage = async (messageId) => {
     try {
-      await axios.delete(`${API_URL}/api/messages/${messageId}`);
+      await apiClient().delete(`/api/messages/${messageId}`);
     } catch (err) {
       console.error('Error deleting message:', err);
+      handleApiError(err);
       alert('Failed to delete message');
     }
   };
@@ -159,6 +206,7 @@ function ChatInterface({ onLogout }) {
           onDeleteMessage={handleDeleteMessage}
           onEditMessage={handleEditMessage}
           messagesEndRef={messagesEndRef}
+          token={token}
         />
         <MessageInput onSendMessage={handleSendMessage} />
       </Paper>
