@@ -18,19 +18,37 @@ function Login({ onLogin }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [warning, setWarning] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setWarning('');
     setLoading(true);
 
     try {
       const response = await axios.post(`${API_URL}/api/auth`, { password });
       if (response.data.success) {
-        onLogin();
+        // Check if password is expiring soon (within 14 days)
+        const daysUntilExpiry = response.data.passwordExpiresInDays;
+        if (daysUntilExpiry !== null && daysUntilExpiry <= 14) {
+          setWarning(`Password expires in ${daysUntilExpiry} days. Please update your password soon.`);
+          // Still allow login but show warning
+          setTimeout(() => {
+            onLogin(response.data.token);
+          }, 3000);
+        } else {
+          onLogin(response.data.token);
+        }
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Invalid password');
+      if (err.response?.data?.expired) {
+        setError('Password has expired. Please contact the administrator to update the password.');
+      } else if (err.response?.status === 429) {
+        setError('Too many login attempts. Please try again later.');
+      } else {
+        setError(err.response?.data?.message || 'Invalid password');
+      }
     } finally {
       setLoading(false);
     }
@@ -74,6 +92,12 @@ function Login({ onLogin }) {
               {error && (
                 <Alert severity="error" sx={{ mt: 2 }}>
                   {error}
+                </Alert>
+              )}
+
+              {warning && (
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                  {warning}
                 </Alert>
               )}
 

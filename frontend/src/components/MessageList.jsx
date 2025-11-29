@@ -8,7 +8,7 @@ import { format, isToday, isYesterday, differenceInDays } from 'date-fns';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-function MessageList({ messages, onDeleteMessage, onEditMessage, messagesEndRef }) {
+function MessageList({ messages, onDeleteMessage, onEditMessage, messagesEndRef, token }) {
   const [contextMenu, setContextMenu] = useState(null);
   const [selectedMessage, setSelectedMessage] = useState(null);
 
@@ -50,11 +50,6 @@ function MessageList({ messages, onDeleteMessage, onEditMessage, messagesEndRef 
     );
   };
 
-  const handleLongPress = (message) => {
-    setSelectedMessage(message);
-    // For mobile, we'll use a different approach with the menu
-  };
-
   const handleCloseContextMenu = () => {
     setContextMenu(null);
     setSelectedMessage(null);
@@ -84,8 +79,31 @@ function MessageList({ messages, onDeleteMessage, onEditMessage, messagesEndRef 
     handleCloseContextMenu();
   };
 
-  const handleDownloadFile = (messageId, fileName) => {
-    window.open(`${API_URL}/api/messages/${messageId}/file`, '_blank');
+  const handleDownloadFile = async (messageId, fileName) => {
+    try {
+      const response = await fetch(`${API_URL}/api/messages/${messageId}/file`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Download failed');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Error downloading file:', err);
+      alert('Failed to download file');
+    }
   };
 
   const formatFileSize = (bytes) => {

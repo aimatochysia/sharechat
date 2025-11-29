@@ -1,5 +1,28 @@
 # Deployment Guide
 
+## Environment Variables
+
+### Required Variables
+| Variable | Description |
+|----------|-------------|
+| `MONGO_URI` | MongoDB connection string |
+| `CHAT_PASSWORD` | Password for authentication |
+| `CLIENT_URL` | Frontend URL (for CORS, e.g., `https://your-app.vercel.app`) |
+
+### Security Variables (Recommended for Production)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `JWT_SECRET` | auto-generated | **IMPORTANT**: Set a strong, unique secret key in production! |
+| `JWT_EXPIRY` | `24h` | JWT token expiration time |
+| `PASSWORD_SET_DATE` | none | Date when password was last set (YYYY-MM-DD format). Set this when you change the password. |
+| `PASSWORD_EXPIRY_DAYS` | `90` | Days until password expires (default: 3 months) |
+
+### Optional Variables
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3000` | Server port |
+| `NODE_ENV` | `development` | Set to `production` for deployment |
+
 ## Deploy to Railway
 
 1. **Create a Railway Account**
@@ -22,10 +45,13 @@
      ```
      MONGO_URI=<your_railway_mongodb_connection_string>
      CHAT_PASSWORD=<your_secure_password>
+     JWT_SECRET=<your_strong_secret_key>
+     PASSWORD_SET_DATE=2024-01-15
+     CLIENT_URL=<your_railway_app_url>
      NODE_ENV=production
      ```
 
-4. **Deploy**
+5. **Deploy**
    - Railway will automatically build and deploy your app
    - The build process runs `cd backend && npm install && cd ../frontend && npm install && npm run build && cd ../backend && npm start`
    - Your app will be available at the generated Railway URL
@@ -52,6 +78,9 @@
      ```
      MONGO_URI=<your_mongodb_connection_string>
      CHAT_PASSWORD=<your_secure_password>
+     JWT_SECRET=<your_strong_secret_key>
+     PASSWORD_SET_DATE=2024-01-15
+     CLIENT_URL=<your_render_app_url>
      NODE_ENV=production
      ```
 
@@ -89,6 +118,9 @@
 6. **Set Environment Variables**
    ```bash
    heroku config:set CHAT_PASSWORD=your_secure_password
+   heroku config:set JWT_SECRET=your_strong_secret_key
+   heroku config:set PASSWORD_SET_DATE=2024-01-15
+   heroku config:set CLIENT_URL=https://your-app.herokuapp.com
    heroku config:set NODE_ENV=production
    ```
 
@@ -117,6 +149,9 @@
      ```
      MONGO_URI=<your_mongodb_connection_string>
      CHAT_PASSWORD=<your_secure_password>
+     JWT_SECRET=<your_strong_secret_key>
+     PASSWORD_SET_DATE=2024-01-15
+     CLIENT_URL=<your_vercel_app_url>
      NODE_ENV=production
      ```
 
@@ -160,6 +195,7 @@ mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/sharechat?retryWrites
 1. **Access Your Chat**
    - Navigate to your deployed URL
    - Login with the password you set in `CHAT_PASSWORD`
+   - You'll receive a JWT token that expires based on `JWT_EXPIRY`
 
 2. **Monitor Storage**
    - MongoDB Atlas provides monitoring tools
@@ -168,8 +204,17 @@ mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/sharechat?retryWrites
 
 3. **Security**
    - Keep your `CHAT_PASSWORD` secure
-   - Change it periodically
+   - Update `PASSWORD_SET_DATE` when you change the password
+   - Password expires after 90 days by default (configurable via `PASSWORD_EXPIRY_DAYS`)
    - Never commit `.env` file to version control
+   - Use a strong, unique `JWT_SECRET` in production
+
+4. **Password Rotation**
+   - The system warns you 14 days before password expiration
+   - To change your password:
+     1. Update `CHAT_PASSWORD` in your environment variables
+     2. Update `PASSWORD_SET_DATE` to today's date (YYYY-MM-DD format)
+     3. Redeploy your application
 
 ## Troubleshooting
 
@@ -185,13 +230,23 @@ mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/sharechat?retryWrites
 
 ### Chat not loading
 - Check browser console for errors
-- Verify API_URL is pointing to correct backend
-- Check CORS settings allow your frontend domain
+- Verify `VITE_API_URL` is pointing to correct backend
+- Check CORS settings - `CLIENT_URL` must match your frontend domain
+
+### Authentication issues
+- Ensure `JWT_SECRET` is set and consistent across deployments
+- Check token expiration settings
+- Verify password hasn't expired (check `PASSWORD_SET_DATE`)
+
+### "Token expired" errors
+- Clear browser local storage
+- Re-login with your password
+- Consider increasing `JWT_EXPIRY` if tokens expire too quickly
 
 ## Performance Tips
 
 1. **CBOR Encoding** reduces storage by ~30-40% compared to JSON
-2. **Image Limit**: Keep images under 5MB for best performance
+2. **Image Limit**: Keep images under 50MB for best performance
 3. **Message Pagination**: The default limit is 100 messages per load
 4. **Search Optimization**: Use indexed text search for better performance
 
