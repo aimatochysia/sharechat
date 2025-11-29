@@ -1,13 +1,11 @@
 {
-  "name": "sharechat",
+  "name": "sharechat-backend",
   "version": "1.0.0",
-  "description": "share encrypted messages and chat via web",
+  "description": "ShareChat backend server",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "client": "cd client && npm run dev",
-    "build": "cd client && npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

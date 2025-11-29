@@ -20,13 +20,13 @@
 - Smooth animations and transitions
 
 **Files:**
-- `client/src/App.jsx` - Main application
-- `client/src/components/Login.jsx` - Authentication
-- `client/src/components/ChatInterface.jsx` - Main chat
-- `client/src/components/MessageList.jsx` - Message display
-- `client/src/components/MessageInput.jsx` - Input handling
-- `client/src/components/SearchDialog.jsx` - Search feature
-- `client/src/components/DatePickerDialog.jsx` - Date navigation
+- `frontend/src/App.jsx` - Main application
+- `frontend/src/components/Login.jsx` - Authentication
+- `frontend/src/components/ChatInterface.jsx` - Main chat
+- `frontend/src/components/MessageList.jsx` - Message display
+- `frontend/src/components/MessageInput.jsx` - Input handling
+- `frontend/src/components/SearchDialog.jsx` - Search feature
+- `frontend/src/components/DatePickerDialog.jsx` - Date navigation
 
 ---
 
@@ -39,9 +39,9 @@
 - Rate limiting (5 attempts per 15 minutes)
 
 **Implementation:**
-- Backend: `server.js` line 88-95 (auth endpoint)
-- Frontend: `client/src/components/Login.jsx`
-- Environment: `.env.example` template provided
+- Backend: `backend/server.js` line 88-95 (auth endpoint)
+- Frontend: `frontend/src/components/Login.jsx`
+- Environment: `backend/.env.example` template provided
 
 ---
 
@@ -54,8 +54,8 @@
 - Production-ready configuration
 
 **Implementation:**
-- Connection: `server.js` line 36-46
-- Model: `models/Message.js`
+- Connection: `backend/server.js` line 36-46
+- Model: `backend/models/Message.js`
 - Indexes for performance (timestamp, text search)
 
 ---
@@ -74,8 +74,8 @@
 - **34% more storage capacity**
 
 **Implementation:**
-- Encoding: `server.js` line 146-149
-- Decoding: `server.js` line 112-120
+- Encoding: `backend/server.js` line 146-149
+- Decoding: `backend/server.js` line 112-120
 - Library: `cbor` npm package
 
 ---
@@ -90,8 +90,8 @@
 - No video support (as requested)
 
 **Implementation:**
-- API: `server.js` line 141-166 (POST /api/messages)
-- Frontend: `client/src/components/MessageInput.jsx`
+- API: `backend/server.js` line 141-166 (POST /api/messages)
+- Frontend: `frontend/src/components/MessageInput.jsx`
 - File validation: Multer with memory storage
 
 ---
@@ -125,8 +125,8 @@
 - Undo not implemented (permanent deletion)
 
 **Implementation:**
-- API: `server.js` line 168-183 (DELETE /api/messages/:id)
-- Frontend: `client/src/components/MessageList.jsx` line 139-151
+- API: `backend/server.js` line 168-183 (DELETE /api/messages/:id)
+- Frontend: `frontend/src/components/MessageList.jsx` line 139-151
 - Socket.io: Real-time deletion broadcast
 
 ---
@@ -140,8 +140,8 @@
 - MongoDB regex-based search
 
 **Implementation:**
-- API: `server.js` line 74-77 (search query param)
-- Frontend: `client/src/components/SearchDialog.jsx`
+- API: `backend/server.js` line 74-77 (search query param)
+- Frontend: `frontend/src/components/SearchDialog.jsx`
 - Search button in top bar
 
 ---
@@ -155,8 +155,8 @@
 - Easy navigation through history
 
 **Implementation:**
-- API: `server.js` line 80-86 (date query param)
-- Frontend: `client/src/components/DatePickerDialog.jsx`
+- API: `backend/server.js` line 80-86 (date query param)
+- Frontend: `frontend/src/components/DatePickerDialog.jsx`
 - Calendar icon in top bar
 
 ---
@@ -170,7 +170,7 @@
 - Date separators between message groups
 
 **Implementation:**
-- Frontend: `client/src/components/MessageList.jsx` line 6-13
+- Frontend: `frontend/src/components/MessageList.jsx` line 6-13
 - Uses date-fns library
 - Automatic grouping by date
 
@@ -184,7 +184,7 @@
 - Positioned near message content
 
 **Implementation:**
-- Frontend: `client/src/components/MessageList.jsx` line 16-18
+- Frontend: `frontend/src/components/MessageList.jsx` line 16-18
 - Format: date-fns `format(date, 'HH:mm')`
 
 ---
@@ -281,7 +281,7 @@
 
 ```
 sharechat/
-├── client/                      # React frontend
+├── frontend/                    # React frontend
 │   ├── src/
 │   │   ├── components/         # 7 React components
 │   │   ├── App.jsx            # Main app component
@@ -290,12 +290,13 @@ sharechat/
 │   ├── public/                # Static assets
 │   ├── package.json           # Frontend dependencies
 │   └── vite.config.js         # Vite configuration
-├── models/
-│   └── Message.js             # MongoDB schema
-├── server.js                  # Express server (250 lines)
-├── package.json               # Backend dependencies
-├── .env.example               # Environment template
-├── test-api.js                # API testing script
+├── backend/                    # Node.js backend
+│   ├── models/
+│   │   └── Message.js         # MongoDB schema
+│   ├── server.js              # Express server (250 lines)
+│   ├── package.json           # Backend dependencies
+│   ├── .env.example           # Environment template
+│   └── test-api.js            # API testing script
 ├── README.md                  # Main documentation
 ├── QUICKSTART.md              # Setup guide
 ├── DEPLOYMENT.md              # Deployment guide
@@ -401,13 +402,13 @@ CLIENT_URL=https://...               # Optional (dev only)
 ### Build Commands
 ```bash
 # Install dependencies
-npm install && cd client && npm install
+cd backend && npm install && cd ../frontend && npm install
 
 # Build frontend
-npm run build
+cd frontend && npm run build
 
 # Start server
-npm start
+cd backend && npm start
 ```
 
 ### Deployment Platforms Supported

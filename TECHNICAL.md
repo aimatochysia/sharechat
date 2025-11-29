@@ -242,14 +242,14 @@ CHAT_PASSWORD=<secure_password>    # Authentication
 
 ```bash
 # Install dependencies
-npm install
-cd client && npm install
+cd backend && npm install
+cd ../frontend && npm install
 
 # Build frontend
-npm run build
+cd frontend && npm run build
 
 # Start server (serves built frontend)
-npm start
+cd backend && npm start
 ```
 
 ### Environment Setup

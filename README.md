@@ -61,22 +61,24 @@ cd sharechat
 
 2. Install backend dependencies:
 ```bash
+cd backend
 npm install
 ```
 
 3. Install frontend dependencies:
 ```bash
-cd client
+cd ../frontend
 npm install
 cd ..
 ```
 
-4. Create `.env` file in the root directory:
+4. Create `.env` file in the backend directory:
 ```bash
+cd backend
 cp .env.example .env
 ```
 
-5. Update the `.env` file with your configuration:
+5. Update the `backend/.env` file with your configuration:
 ```env
 MONGO_URI=your_mongodb_connection_string
 CHAT_PASSWORD=your_secure_password
@@ -85,13 +87,13 @@ PORT=3000
 NODE_ENV=development
 ```
 
-6. Create `.env` file in the client directory:
+6. Create `.env` file in the frontend directory:
 ```bash
-cd client
+cd ../frontend
 cp .env.example .env
 ```
 
-Update `client/.env`:
+Update `frontend/.env`:
 ```env
 VITE_API_URL=http://localhost:3000
 ```
@@ -100,12 +102,14 @@ VITE_API_URL=http://localhost:3000
 
 Run the backend server:
 ```bash
+cd backend
 npm run dev
 ```
 
 In a separate terminal, run the frontend:
 ```bash
-npm run client
+cd frontend
+npm run dev
 ```
 
 The application will be available at:
@@ -116,10 +120,11 @@ The application will be available at:
 
 ### Build the frontend:
 ```bash
+cd frontend
 npm run build
 ```
 
-This creates an optimized production build in `client/dist`.
+This creates an optimized production build in `frontend/dist`.
 
 ### Deploy to a platform (e.g., Railway, Render, Heroku):
 
@@ -131,18 +136,18 @@ This creates an optimized production build in `client/dist`.
 
 2. The server will automatically serve the built React app in production mode.
 
-3. Start command: `npm start`
+3. Start command: `cd backend && npm start`
 
 ## Environment Variables
 
-### Backend (.env)
+### Backend (backend/.env)
 - `MONGO_URI` - MongoDB connection string (required)
 - `CHAT_PASSWORD` - Password for accessing the chat (required)
 - `CLIENT_URL` - Frontend URL for CORS (development only)
 - `PORT` - Server port (default: 3000)
 - `NODE_ENV` - Environment mode (development/production)
 
-### Frontend (client/.env)
+### Frontend (frontend/.env)
 - `VITE_API_URL` - Backend API URL
 
 ## Storage Optimization

@@ -18,10 +18,11 @@ git clone https://github.com/aimatochysia/sharechat.git
 cd sharechat
 
 # Install backend dependencies
+cd backend
 npm install
 
 # Install frontend dependencies
-cd client
+cd ../frontend
 npm install
 cd ..
 ```
@@ -30,10 +31,11 @@ cd ..
 
 ```bash
 # Copy example environment file
+cd backend
 cp .env.example .env
 ```
 
-Edit `.env` and set your values:
+Edit `backend/.env` and set your values:
 
 ```env
 MONGO_URI=your_mongodb_connection_string
@@ -46,11 +48,11 @@ NODE_ENV=development
 Configure frontend:
 
 ```bash
-cd client
+cd ../frontend
 cp .env.example .env
 ```
 
-Edit `client/.env`:
+Edit `frontend/.env`:
 
 ```env
 VITE_API_URL=http://localhost:3000
@@ -83,12 +85,14 @@ MONGO_URI=mongodb://localhost:27017/sharechat
 
 **Terminal 1 - Backend:**
 ```bash
+cd backend
 npm run dev
 ```
 
 **Terminal 2 - Frontend:**
 ```bash
-npm run client
+cd frontend
+npm run dev
 ```
 
 ### 5. Access Your Chat
@@ -101,6 +105,7 @@ Login with the password you set in `.env`
 
 ### Test the API
 ```bash
+cd backend
 node test-api.js
 ```
 
@@ -158,8 +163,8 @@ Set environment variables in Railway dashboard:
 1. Go to https://render.com
 2. Connect GitHub repository
 3. Create Web Service
-4. Set build command: `npm install && cd client && npm install && npm run build`
-5. Set start command: `npm start`
+4. Set build command: `cd backend && npm install && cd ../frontend && npm install && npm run build`
+5. Set start command: `cd backend && npm start`
 6. Add environment variables
 
 ### Option 3: Heroku
@@ -209,11 +214,13 @@ taskkill /PID <PID> /F
 ### Build Errors
 
 ```bash
-# Clear and reinstall
+# Clear and reinstall backend
+cd backend
 rm -rf node_modules package-lock.json
 npm install
 
-cd client
+# Clear and reinstall frontend
+cd ../frontend
 rm -rf node_modules package-lock.json
 npm install
 ```
@@ -236,15 +243,15 @@ npm install
 
 ```bash
 # Development
-npm run dev              # Start backend server
-npm run client          # Start frontend dev server
+cd backend && npm run dev   # Start backend server
+cd frontend && npm run dev  # Start frontend dev server
 
 # Production
-npm run build           # Build frontend for production
-npm start               # Start production server
+cd frontend && npm run build  # Build frontend for production
+cd backend && npm start       # Start production server
 
 # Testing
-node test-api.js        # Test API endpoints
+cd backend && node test-api.js  # Test API endpoints
 
 # Database
 mongodump --uri="..."   # Backup database
@@ -255,17 +262,20 @@ mongorestore --uri="..." # Restore database
 
 ```
 sharechat/
-├── client/              # React frontend
+├── frontend/            # React frontend
 │   ├── src/
 │   │   ├── components/  # React components
 │   │   ├── App.jsx     # Main app
 │   │   └── main.jsx    # Entry point
 │   └── public/         # Static assets
-├── models/             # MongoDB models
-│   └── Message.js      # Message schema
-├── server.js           # Express server
-├── package.json        # Backend deps
-└── .env               # Environment config
+├── backend/            # Node.js backend
+│   ├── models/         # MongoDB models
+│   │   └── Message.js  # Message schema
+│   ├── server.js       # Express server
+│   ├── package.json    # Backend deps
+│   └── .env           # Environment config
+├── README.md          # Main documentation
+└── docs/              # Additional documentation
 ```
 
 ## Getting Help

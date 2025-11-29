@@ -25,9 +25,9 @@
      NODE_ENV=production
      ```
 
-5. **Deploy**
+4. **Deploy**
    - Railway will automatically build and deploy your app
-   - The build process runs `npm install && npm run build && npm start`
+   - The build process runs `cd backend && npm install && cd ../frontend && npm install && npm run build && cd ../backend && npm start`
    - Your app will be available at the generated Railway URL
 
 ## Deploy to Render
@@ -43,8 +43,8 @@
 3. **Configure Service**
    - Name: sharechat
    - Environment: Node
-   - Build Command: `npm install && cd client && npm install && npm run build && cd ..`
-   - Start Command: `npm start`
+   - Build Command: `cd backend && npm install && cd ../frontend && npm install && npm run build`
+   - Start Command: `cd backend && npm start`
 
 4. **Add Environment Variables**
    - Go to Environment tab
@@ -109,8 +109,8 @@
 
 3. **Configure Build Settings**
    - Framework Preset: Other
-   - Build Command: `npm run build`
-   - Output Directory: `client/dist`
+   - Build Command: `cd frontend && npm run build`
+   - Output Directory: `frontend/dist`
 
 4. **Add Environment Variables**
    - Add the following:
