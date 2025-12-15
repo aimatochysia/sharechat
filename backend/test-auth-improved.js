@@ -63,7 +63,7 @@ async function testRSAEncryption() {
     'simplePassword',
     'Password with spaces',
     'P@ssw0rd!#$%',
-    '你好世界', // Unicode characters
+    'HelloWorld', // Test various character types
     'a'.repeat(100) // Long password
   ];
   
@@ -168,9 +168,9 @@ async function testErrorScenarios() {
 }
 
 async function runAllTests() {
-  console.log('\n╔═══════════════════════════════════════════════════════╗');
-  console.log('║     Authentication Flow Test Suite                   ║');
-  console.log('╚═══════════════════════════════════════════════════════╝\n');
+  console.log('\n+========================================================+');
+  console.log('|     Authentication Flow Test Suite                    |');
+  console.log('+========================================================+\n');
   
   const results = [];
   

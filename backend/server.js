@@ -419,7 +419,7 @@ app.post('/api/auth', authLimiter, strictAuthLimiter, async (req, res) => {
     }
     
     // Compare password securely (supports both plain and hashed)
-    let isPasswordValid;
+    let isPasswordValid = false;
     try {
       isPasswordValid = await comparePassword(decryptedPassword, CHAT_PASSWORD);
     } catch (compareErr) {

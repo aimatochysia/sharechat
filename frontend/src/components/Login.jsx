@@ -120,10 +120,11 @@ function Login({ onLogin }) {
       } else if (err.response?.data?.errorType === 'DECRYPTION_ERROR') {
         // Specific handling for decryption errors - suggest page refresh
         setError(err.response?.data?.message || 'Failed to decrypt password. Please refresh the page and try again.');
-        // Auto-refresh public key
+        // Auto-refresh public key after delay
+        const AUTO_REFRESH_DELAY_MS = 3000;
         setTimeout(() => {
           window.location.reload();
-        }, 3000);
+        }, AUTO_REFRESH_DELAY_MS);
       } else if (err.response?.data?.errorType === 'INVALID_PASSWORD') {
         setError('Invalid password. Please check your password and try again.');
       } else {
