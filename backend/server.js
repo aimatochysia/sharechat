@@ -84,14 +84,19 @@ const validatePasswordInput = (password) => {
 
 // Compare password securely (supports both plain and hashed passwords)
 const comparePassword = async (inputPassword, storedPassword) => {
-  // Check if stored password is a bcrypt hash (starts with $2a$, $2b$, or $2y$)
-  if (storedPassword.startsWith('$2a$') || storedPassword.startsWith('$2b$') || storedPassword.startsWith('$2y$')) {
+  // Check if stored password is a bcrypt hash using regex pattern
+  const bcryptPattern = /^\$2[aby]\$/;
+  if (bcryptPattern.test(storedPassword)) {
     // Use bcrypt comparison for hashed passwords
     return await bcrypt.compare(inputPassword, storedPassword);
   } else {
     // Fallback to plain text comparison (for backward compatibility)
     // Log a warning to encourage using hashed passwords
-    console.warn('WARNING: Using plain text password comparison. Consider using a bcrypt hash for CHAT_PASSWORD.');
+    if (process.env.NODE_ENV === 'production') {
+      console.error('SECURITY WARNING: Using plain text password comparison in production! Generate a bcrypt hash with: node generate-hash.js');
+    } else {
+      console.warn('WARNING: Using plain text password comparison. Consider using a bcrypt hash for CHAT_PASSWORD.');
+    }
     return inputPassword === storedPassword;
   }
 };
@@ -255,13 +260,14 @@ app.use(express.static('public'));
 app.set('trust proxy', 1);
 
 // Rate limiting middleware
+// Note: Default keyGenerator properly handles both IPv4 and IPv6 addresses
+// Custom keyGenerators were removed to avoid IPv6 bypass vulnerabilities
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Limit each IP to 100 requests per windowMs
   message: { success: false, message: 'Too many requests from this IP, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
-  // keyGenerator uses req.ip automatically (IPv6-safe)
 });
 
 // Stricter rate limiting for authentication (anti-brute force)
@@ -272,7 +278,6 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: false, // Count all requests including successful ones
-  // keyGenerator uses req.ip automatically (IPv6-safe)
 });
 
 // Even stricter limiter for repeated failed attempts (progressive lockout)
@@ -282,7 +287,6 @@ const strictAuthLimiter = rateLimit({
   message: { success: false, message: 'Too many failed authentication attempts. Account locked for 1 hour.' },
   standardHeaders: true,
   legacyHeaders: false,
-  // keyGenerator uses req.ip automatically (IPv6-safe)
 });
 
 const uploadLimiter = rateLimit({
@@ -291,7 +295,6 @@ const uploadLimiter = rateLimit({
   message: { success: false, message: 'Too many uploads, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
-  // keyGenerator uses req.ip automatically (IPv6-safe)
 });
 
 // Apply rate limiting to API routes
