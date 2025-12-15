@@ -123,6 +123,46 @@ function sha256Hash(data) {
   return crypto.createHash('sha256').update(data).digest('hex');
 }
 
+/**
+ * Generate a secure nonce (number used once) for cryptographic operations
+ * @param {number} length - Length in bytes (default: 16)
+ * @returns {string} Hex-encoded nonce
+ */
+function generateSecureNonce(length = 16) {
+  return crypto.randomBytes(length).toString('hex');
+}
+
+/**
+ * Verify data integrity using HMAC-SHA256
+ * @param {string} data - Data to verify
+ * @param {string} signature - HMAC signature to verify against
+ * @param {string} secret - Secret key for HMAC
+ * @returns {boolean} True if signature is valid
+ */
+function verifyHMAC(data, signature, secret) {
+  const hmac = crypto.createHmac('sha256', secret);
+  hmac.update(data);
+  const expectedSignature = hmac.digest('hex');
+  
+  // Use timing-safe comparison to prevent timing attacks
+  return crypto.timingSafeEqual(
+    Buffer.from(signature, 'hex'),
+    Buffer.from(expectedSignature, 'hex')
+  );
+}
+
+/**
+ * Generate HMAC signature for data
+ * @param {string} data - Data to sign
+ * @param {string} secret - Secret key for HMAC
+ * @returns {string} Hex-encoded HMAC signature
+ */
+function generateHMAC(data, secret) {
+  const hmac = crypto.createHmac('sha256', secret);
+  hmac.update(data);
+  return hmac.digest('hex');
+}
+
 module.exports = {
   generateRSAKeyPair,
   encryptWithPublicKey,
@@ -131,4 +171,7 @@ module.exports = {
   getPublicKeyFingerprint,
   generateRandomKey,
   sha256Hash,
+  generateSecureNonce,
+  verifyHMAC,
+  generateHMAC,
 };

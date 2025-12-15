@@ -317,8 +317,19 @@ app.use('/api/', apiLimiter);
 
 // Public key endpoint (no authentication required)
 // This allows clients to fetch the public key for encrypting passwords
+// Rate limited by apiLimiter (100 requests per 15 min per IP)
 app.get('/api/auth/public-key', (req, res) => {
+  const clientIp = req.ip || req.connection.remoteAddress;
+  
   try {
+    // Log public key access for security monitoring
+    if (process.env.NODE_ENV === 'production') {
+      logSecurityEvent('PUBLIC_KEY_ACCESS', { ip: clientIp });
+    }
+    
+    // Cache headers to allow client-side caching for 5 minutes
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    
     res.json({ 
       success: true, 
       publicKey: rsaKeyPair.publicKey,
@@ -326,6 +337,7 @@ app.get('/api/auth/public-key', (req, res) => {
     });
   } catch (err) {
     console.error('Error serving public key:', err);
+    logSecurityEvent('PUBLIC_KEY_ERROR', { ip: clientIp, error: err.message });
     res.status(500).json({ 
       success: false, 
       message: 'Failed to retrieve public key' 
@@ -551,6 +563,15 @@ app.post('/api/messages', verifyToken, uploadLimiter, upload.fields([
     // Handle image upload with CBOR encoding
     if (req.files && req.files.image && req.files.image[0]) {
       const imageFile = req.files.image[0];
+      
+      // Validate image MIME type for security
+      const allowedImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+      if (!allowedImageTypes.includes(imageFile.mimetype)) {
+        return res.status(400).json({ 
+          message: 'Invalid image type. Allowed: JPEG, PNG, GIF, WebP, SVG' 
+        });
+      }
+      
       // Compress and encode the buffer using CBOR
       const compressed = pako.gzip(imageFile.buffer);
       const encodedImage = cbor.encode(compressed);
@@ -561,11 +582,22 @@ app.post('/api/messages', verifyToken, uploadLimiter, upload.fields([
     // Handle file upload with CBOR encoding
     if (req.files && req.files.file && req.files.file[0]) {
       const file = req.files.file[0];
+      
+      // Validate file size (already limited by multer, but double-check)
+      if (file.size > 50 * 1024 * 1024) {
+        return res.status(400).json({ message: 'File size exceeds 50MB limit' });
+      }
+      
+      // Sanitize filename to prevent path traversal attacks
+      const sanitizedFilename = file.originalname
+        .replace(/[^a-zA-Z0-9._-]/g, '_') // Replace unsafe characters
+        .substring(0, 255); // Limit filename length
+      
       // Compress and encode the buffer using CBOR
       const compressed = pako.gzip(file.buffer);
       const encodedFile = cbor.encode(compressed);
       messageData.fileData = encodedFile;
-      messageData.fileName = file.originalname;
+      messageData.fileName = sanitizedFilename;
       messageData.fileMimeType = file.mimetype;
       messageData.fileSize = file.size;
     }

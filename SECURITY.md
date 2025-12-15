@@ -114,7 +114,10 @@
 - ✅ Rate limiting on upload endpoint (20 uploads/15min, IPv6-safe)
 - ✅ **Input validation** on all endpoints
 - ✅ **Input sanitization** to prevent XSS attacks
+- ✅ **File type validation** (allowed image types: JPEG, PNG, GIF, WebP, SVG)
+- ✅ **Filename sanitization** to prevent path traversal attacks
 - ✅ Security headers via Helmet.js (HSTS, CSP, XSS filter, etc.)
+- ✅ **Public key caching** (5-minute cache to reduce load)
 
 ### Data Security
 - ✅ MongoDB connection string stored in environment variable
@@ -124,6 +127,7 @@
 - ✅ No SQL injection vectors (using Mongoose ODM)
 - ✅ Proper error handling without exposing internals
 - ✅ **Control character sanitization** in text inputs
+- ✅ **Cryptographic utilities** (HMAC, secure nonces, timing-safe comparison)
 
 ### Network Security
 - ✅ Socket.io configured with CORS and authentication
