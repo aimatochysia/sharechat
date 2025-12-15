@@ -84,8 +84,9 @@ const validatePasswordInput = (password) => {
 
 // Compare password securely (supports both plain and hashed passwords)
 const comparePassword = async (inputPassword, storedPassword) => {
-  // Check if stored password is a bcrypt hash using regex pattern
-  const bcryptPattern = /^\$2[aby]\$/;
+  // Check if stored password is a bcrypt hash using comprehensive regex pattern
+  // Matches: $2a$, $2b$, $2x$, $2y$ followed by cost and hash
+  const bcryptPattern = /^\$2[abxy]\$\d+\$/;
   if (bcryptPattern.test(storedPassword)) {
     // Use bcrypt comparison for hashed passwords
     return await bcrypt.compare(inputPassword, storedPassword);
@@ -106,8 +107,9 @@ const sanitizeText = (text) => {
   if (!text || typeof text !== 'string') {
     return '';
   }
-  // Remove null bytes and control characters (except newlines and tabs)
-  return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  // Remove null bytes, ASCII control characters (except newlines and tabs),
+  // and Unicode control characters (U+0080 to U+009F)
+  return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u0080-\u009F]/g, '');
 };
 
 // Validate text message input
@@ -184,7 +186,10 @@ if (!MONGO_URI) {
   process.exit(1);
 }
 
-mongoose.connect(MONGO_URI).then(() => {
+mongoose.connect(MONGO_URI, {
+  serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
+  heartbeatFrequencyMS: 10000, // Check connection health every 10s
+}).then(() => {
   console.log('MongoDB connected');
 }).catch(err => {
   console.error('MongoDB connection error:', err);

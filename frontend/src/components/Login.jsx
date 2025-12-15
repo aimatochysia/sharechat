@@ -55,7 +55,11 @@ function Login({ onLogin }) {
         }
       }
     } catch (err) {
-      console.error('Authentication error:', err);
+      // Only log errors in development mode
+      if (import.meta.env.DEV) {
+        console.error('Authentication error:', err);
+      }
+      
       if (err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
         setError('Unable to connect to server. Please check your network connection and ensure the backend is running.');
       } else if (err.response?.data?.expired) {

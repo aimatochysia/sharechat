@@ -14,7 +14,9 @@
 const bcrypt = require('bcryptjs');
 const readline = require('readline');
 
-const SALT_ROUNDS = 10;
+// Salt rounds: 10 is adequate for current security standards (2025)
+// Can be overridden with BCRYPT_SALT_ROUNDS environment variable for future-proofing
+const SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS, 10) || 10;
 
 async function generateHash(password) {
   try {
