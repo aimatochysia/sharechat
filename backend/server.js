@@ -589,8 +589,10 @@ app.post('/api/messages', verifyToken, uploadLimiter, upload.fields([
       }
       
       // Sanitize filename to prevent path traversal attacks
+      // Preserve spaces and common characters, only replace dangerous ones
       const sanitizedFilename = file.originalname
-        .replace(/[^a-zA-Z0-9._-]/g, '_') // Replace unsafe characters
+        .replace(/[\/\\:\*\?"<>\|\x00]/g, '_') // Replace path separators and dangerous chars
+        .replace(/\.\./g, '_') // Prevent directory traversal
         .substring(0, 255); // Limit filename length
       
       // Compress and encode the buffer using CBOR

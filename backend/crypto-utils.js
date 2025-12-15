@@ -6,8 +6,6 @@
  */
 
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 
 // RSA key configuration
 const RSA_KEY_SIZE = 2048; // 2048-bit keys (secure for current standards)
@@ -107,7 +105,11 @@ function getPublicKeyFingerprint(publicKey) {
 
 /**
  * Generate a random encryption key for session-based encryption
- * This can be used for additional encryption layers
+ * This utility is provided for future enhancements such as:
+ * - Session-based symmetric encryption
+ * - Additional encryption layers for messages
+ * - Key derivation for HMAC operations
+ * @param {number} length - Length in bytes (default: 32)
  * @returns {string} Base64-encoded random key
  */
 function generateRandomKey(length = 32) {
