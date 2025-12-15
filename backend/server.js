@@ -179,10 +179,7 @@ if (!MONGO_URI) {
   process.exit(1);
 }
 
-mongoose.connect(MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-}).then(() => {
+mongoose.connect(MONGO_URI).then(() => {
   console.log('MongoDB connected');
 }).catch(err => {
   console.error('MongoDB connection error:', err);
@@ -264,7 +261,7 @@ const apiLimiter = rateLimit({
   message: { success: false, message: 'Too many requests from this IP, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip, // Use IP for rate limiting
+  // keyGenerator uses req.ip automatically (IPv6-safe)
 });
 
 // Stricter rate limiting for authentication (anti-brute force)
@@ -274,8 +271,8 @@ const authLimiter = rateLimit({
   message: { success: false, message: 'Too many authentication attempts, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip,
   skipSuccessfulRequests: false, // Count all requests including successful ones
+  // keyGenerator uses req.ip automatically (IPv6-safe)
 });
 
 // Even stricter limiter for repeated failed attempts (progressive lockout)
@@ -285,7 +282,7 @@ const strictAuthLimiter = rateLimit({
   message: { success: false, message: 'Too many failed authentication attempts. Account locked for 1 hour.' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip,
+  // keyGenerator uses req.ip automatically (IPv6-safe)
 });
 
 const uploadLimiter = rateLimit({
@@ -294,6 +291,7 @@ const uploadLimiter = rateLimit({
   message: { success: false, message: 'Too many uploads, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  // keyGenerator uses req.ip automatically (IPv6-safe)
 });
 
 // Apply rate limiting to API routes
