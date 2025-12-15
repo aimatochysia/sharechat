@@ -187,8 +187,10 @@ if (!MONGO_URI) {
 }
 
 mongoose.connect(MONGO_URI, {
-  serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
+  serverSelectionTimeoutMS: 30000, // Timeout after 30s for initial connection (important for MongoDB Atlas)
   heartbeatFrequencyMS: 10000, // Check connection health every 10s
+  retryWrites: true, // Automatically retry failed writes (recommended for MongoDB Atlas)
+  maxPoolSize: 10, // Maximum connection pool size
 }).then(() => {
   console.log('MongoDB connected');
 }).catch(err => {
