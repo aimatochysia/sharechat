@@ -13,9 +13,13 @@ const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const bcrypt = require('bcryptjs');
 const Message = require('./models/Message');
+const cryptoUtils = require('./crypto-utils');
 
 const app = express();
 const server = http.createServer(app);
+
+// Generate RSA key pair for password encryption
+const rsaKeyPair = cryptoUtils.getOrGenerateKeyPair();
 
 // Security: Parse allowed origins for CORS
 const getAllowedOrigins = () => {
@@ -307,15 +311,61 @@ const uploadLimiter = rateLimit({
 // Apply rate limiting to API routes
 app.use('/api/', apiLimiter);
 
+// Public key endpoint (no authentication required)
+// This allows clients to fetch the public key for encrypting passwords
+app.get('/api/auth/public-key', (req, res) => {
+  try {
+    res.json({ 
+      success: true, 
+      publicKey: rsaKeyPair.publicKey,
+      keyFingerprint: cryptoUtils.getPublicKeyFingerprint(rsaKeyPair.publicKey)
+    });
+  } catch (err) {
+    console.error('Error serving public key:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to retrieve public key' 
+    });
+  }
+});
+
 // Authentication endpoint with JWT token generation
 app.post('/api/auth', authLimiter, strictAuthLimiter, async (req, res) => {
   const clientIp = req.ip || req.connection.remoteAddress;
   
   try {
-    const { password } = req.body;
+    const { password, encryptedPassword } = req.body;
+    
+    // Decrypt password if encrypted with RSA
+    let decryptedPassword;
+    if (encryptedPassword) {
+      try {
+        decryptedPassword = cryptoUtils.decryptWithPrivateKey(encryptedPassword, rsaKeyPair.privateKey);
+        logSecurityEvent('AUTH_ENCRYPTED_PASSWORD_RECEIVED', { ip: clientIp });
+      } catch (decryptErr) {
+        logSecurityEvent('AUTH_DECRYPTION_FAILED', { ip: clientIp, error: decryptErr.message });
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Failed to decrypt password. Please refresh and try again.' 
+        });
+      }
+    } else if (password) {
+      // Fallback to plain password for backward compatibility
+      // Log a warning in production
+      if (process.env.NODE_ENV === 'production') {
+        console.warn('SECURITY WARNING: Received unencrypted password. Client should use RSA encryption.');
+      }
+      decryptedPassword = password;
+    } else {
+      logSecurityEvent('AUTH_NO_PASSWORD', { ip: clientIp });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Password is required' 
+      });
+    }
     
     // Validate password input
-    const validation = validatePasswordInput(password);
+    const validation = validatePasswordInput(decryptedPassword);
     if (!validation.valid) {
       logSecurityEvent('AUTH_VALIDATION_FAILED', { ip: clientIp, reason: validation.error });
       return res.status(400).json({ 
@@ -335,7 +385,7 @@ app.post('/api/auth', authLimiter, strictAuthLimiter, async (req, res) => {
     }
     
     // Compare password securely (supports both plain and hashed)
-    const isPasswordValid = await comparePassword(password, CHAT_PASSWORD);
+    const isPasswordValid = await comparePassword(decryptedPassword, CHAT_PASSWORD);
     
     if (isPasswordValid) {
       const token = generateToken();

@@ -5,7 +5,7 @@ A production-ready, professional webchat application built with React.js and Nod
 ## Features
 
 ### Core Features
-- 🔒 **Password Authentication** - Single password access stored in environment variables
+- 🔒 **Password Authentication** - Single password access with RSA encryption
 - 💬 **Real-time Messaging** - Instant message delivery via Socket.io
 - 📸 **Image Sharing** - Upload and share images (automatically compressed)
 - 📎 **File Attachments** - Upload any document type (PDF, DOCX, ZIP, etc.)
@@ -20,6 +20,7 @@ A production-ready, professional webchat application built with React.js and Nod
 - 🎨 **WhatsApp-like UI** - Professional and familiar interface
 
 ### New in Latest Update
+- 🔐 **RSA Encryption**: Passwords encrypted with 2048-bit public key before transmission
 - ✨ **Context Menu**: Right-click (desktop) or long-press (mobile) on messages
 - ✨ **Message Editing**: Edit text after sending with "edited" indicator
 - ✨ **File Upload**: Share any document type (PDF, DOCX, ZIP, etc.) up to 50MB
