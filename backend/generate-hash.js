@@ -21,11 +21,16 @@ const SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS, 10) || 10;
 async function generateHash(password) {
   try {
     const hash = await bcrypt.hash(password, SALT_ROUNDS);
-    console.log('\n✅ Password hash generated successfully!\n');
+    console.log('\n[SUCCESS] Password hash generated successfully!\n');
     console.log('Hash:', hash);
     console.log('\nAdd this to your .env file:');
     console.log(`CHAT_PASSWORD=${hash}`);
-    console.log('\n⚠️  Keep this hash secure and do not share it publicly.\n');
+    console.log('\n[IMPORTANT NOTES]');
+    console.log('- Keep this hash secure and do not share it publicly.');
+    console.log('- Each time you run this script with the same password,');
+    console.log('  a different hash is generated (this is normal security behavior).');
+    console.log('- The hash will still match your password during login.');
+    console.log('- You only need to run this once per password change.\n');
   } catch (err) {
     console.error('Error generating hash:', err);
     process.exit(1);

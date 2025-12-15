@@ -117,8 +117,17 @@ function Login({ onLogin }) {
         setError('Password has expired. Please contact the administrator to update the password.');
       } else if (err.response?.status === 429) {
         setError('Too many login attempts. Please try again later.');
+      } else if (err.response?.data?.errorType === 'DECRYPTION_ERROR') {
+        // Specific handling for decryption errors - suggest page refresh
+        setError(err.response?.data?.message || 'Failed to decrypt password. Please refresh the page and try again.');
+        // Auto-refresh public key
+        setTimeout(() => {
+          window.location.reload();
+        }, 3000);
+      } else if (err.response?.data?.errorType === 'INVALID_PASSWORD') {
+        setError('Invalid password. Please check your password and try again.');
       } else {
-        setError(err.response?.data?.message || 'Invalid password');
+        setError(err.response?.data?.message || 'Authentication failed. Please try again.');
       }
     } finally {
       setLoading(false);

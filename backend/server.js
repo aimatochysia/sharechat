@@ -95,8 +95,13 @@ const comparePassword = async (inputPassword, storedPassword) => {
   // Check if stored password is a bcrypt hash using comprehensive regex pattern
   // Matches: $2a$, $2b$, $2x$, $2y$ followed by cost and hash
   const bcryptPattern = /^\$2[abxy]\$\d+\$/;
-  if (bcryptPattern.test(storedPassword)) {
+  const isBcryptHash = bcryptPattern.test(storedPassword);
+  
+  if (isBcryptHash) {
     // Use bcrypt comparison for hashed passwords
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Using bcrypt comparison for hashed password');
+    }
     return await bcrypt.compare(inputPassword, storedPassword);
   } else {
     // Fallback to plain text comparison (for backward compatibility)
@@ -359,10 +364,23 @@ app.post('/api/auth', authLimiter, strictAuthLimiter, async (req, res) => {
         decryptedPassword = cryptoUtils.decryptWithPrivateKey(encryptedPassword, rsaKeyPair.privateKey);
         logSecurityEvent('AUTH_ENCRYPTED_PASSWORD_RECEIVED', { ip: clientIp });
       } catch (decryptErr) {
-        logSecurityEvent('AUTH_DECRYPTION_FAILED', { ip: clientIp, error: decryptErr.message });
+        // Log detailed error for debugging
+        console.error('Password decryption error:', {
+          error: decryptErr.message,
+          errorType: decryptErr.name,
+          ip: clientIp
+        });
+        logSecurityEvent('AUTH_DECRYPTION_FAILED', { 
+          ip: clientIp, 
+          error: decryptErr.message,
+          errorType: decryptErr.name 
+        });
+        
+        // Return user-friendly error message
         return res.status(400).json({ 
           success: false, 
-          message: 'Failed to decrypt password. Please refresh and try again.' 
+          message: 'Failed to decrypt password. The server encryption keys may have changed. Please refresh the page and try again.',
+          errorType: 'DECRYPTION_ERROR'
         });
       }
     } else if (password) {
@@ -401,7 +419,26 @@ app.post('/api/auth', authLimiter, strictAuthLimiter, async (req, res) => {
     }
     
     // Compare password securely (supports both plain and hashed)
-    const isPasswordValid = await comparePassword(decryptedPassword, CHAT_PASSWORD);
+    let isPasswordValid;
+    try {
+      isPasswordValid = await comparePassword(decryptedPassword, CHAT_PASSWORD);
+    } catch (compareErr) {
+      // Log comparison error for debugging
+      console.error('Password comparison error:', {
+        error: compareErr.message,
+        errorType: compareErr.name,
+        ip: clientIp
+      });
+      logSecurityEvent('AUTH_COMPARISON_ERROR', { 
+        ip: clientIp, 
+        error: compareErr.message 
+      });
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Authentication failed due to a server error. Please try again.',
+        errorType: 'COMPARISON_ERROR'
+      });
+    }
     
     if (isPasswordValid) {
       const token = generateToken();
@@ -424,7 +461,11 @@ app.post('/api/auth', authLimiter, strictAuthLimiter, async (req, res) => {
       });
     } else {
       logSecurityEvent('AUTH_FAILED', { ip: clientIp, reason: 'Invalid password' });
-      res.status(401).json({ success: false, message: 'Invalid password' });
+      res.status(401).json({ 
+        success: false, 
+        message: 'Invalid password. Please check your password and try again.',
+        errorType: 'INVALID_PASSWORD'
+      });
     }
   } catch (err) {
     console.error('Authentication error:', err);
