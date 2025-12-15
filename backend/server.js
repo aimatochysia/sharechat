@@ -19,6 +19,10 @@ const app = express();
 const server = http.createServer(app);
 
 // Generate RSA key pair for password encryption
+// Note: This is a one-time synchronous operation on startup.
+// While computationally expensive (~100ms), it's acceptable as it only
+// happens once during server initialization, not during request handling.
+// Keys regenerate on restart for forward secrecy.
 const rsaKeyPair = cryptoUtils.getOrGenerateKeyPair();
 
 // Security: Parse allowed origins for CORS

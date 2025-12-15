@@ -75,7 +75,12 @@ function decryptWithPrivateKey(encryptedData, privateKey) {
 /**
  * Load or generate RSA key pair
  * Keys are stored in memory for the session, not persisted to disk for security
- * In production, you may want to persist keys and implement key rotation
+ * 
+ * Design Decision: Keys regenerate on each restart for forward secrecy.
+ * Trade-off: In-flight login attempts during restart will fail, but this is
+ * acceptable for personal use case. For high-availability production systems,
+ * consider implementing graceful key rotation with overlapping validity periods.
+ * 
  * @returns {Object} { publicKey, privateKey }
  */
 function getOrGenerateKeyPair() {

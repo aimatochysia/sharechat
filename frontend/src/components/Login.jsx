@@ -64,7 +64,7 @@ function Login({ onLogin }) {
         const encryptedPassword = encrypt.encrypt(password);
         
         if (!encryptedPassword) {
-          setError('Failed to encrypt password. Please refresh the page and try again.');
+          setError('Password encryption failed. This may indicate a connection issue or browser incompatibility. Please try refreshing the page.');
           setLoading(false);
           return;
         }
