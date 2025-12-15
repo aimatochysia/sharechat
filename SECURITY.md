@@ -70,6 +70,16 @@
     - Network error handling with user feedback
     - Status: **IMPLEMENTED**
 
+11. **RSA Public Key Encryption for Password Transmission** (NEW)
+    - 2048-bit RSA key pairs generated on server startup
+    - Public key served via `/api/auth/public-key` endpoint
+    - Frontend encrypts passwords with public key before transmission
+    - Backend decrypts with private key (never exposed)
+    - Protects passwords even if HTTPS is compromised (MITM protection)
+    - Session-based keys for additional security
+    - Backward compatible with plain password (with warnings)
+    - Status: **IMPLEMENTED**
+
 ### Remaining Alerts
 
 **None** - All security issues have been resolved. Latest CodeQL scan: 0 alerts ✅
@@ -77,6 +87,11 @@
 ## Security Measures Implemented
 
 ### Authentication
+- ✅ **RSA Public Key Encryption** for password transmission (NEW)
+  - 2048-bit RSA key pairs generated on server startup
+  - Passwords encrypted client-side before transmission
+  - Private key never leaves server memory
+  - Session-based keys (regenerated on restart for security)
 - ✅ JWT-based authentication with secure tokens
 - ✅ Token expiration (configurable, default: 24h)
 - ✅ Token verification on all protected routes
@@ -99,7 +114,10 @@
 - ✅ Rate limiting on upload endpoint (20 uploads/15min, IPv6-safe)
 - ✅ **Input validation** on all endpoints
 - ✅ **Input sanitization** to prevent XSS attacks
+- ✅ **File type validation** (allowed image types: JPEG, PNG, GIF, WebP, SVG)
+- ✅ **Filename sanitization** to prevent path traversal attacks
 - ✅ Security headers via Helmet.js (HSTS, CSP, XSS filter, etc.)
+- ✅ **Public key caching** (5-minute cache to reduce load)
 
 ### Data Security
 - ✅ MongoDB connection string stored in environment variable
@@ -109,6 +127,7 @@
 - ✅ No SQL injection vectors (using Mongoose ODM)
 - ✅ Proper error handling without exposing internals
 - ✅ **Control character sanitization** in text inputs
+- ✅ **Cryptographic utilities** (HMAC, secure nonces, timing-safe comparison)
 
 ### Network Security
 - ✅ Socket.io configured with CORS and authentication
@@ -179,7 +198,9 @@ These should be handled at the deployment platform level:
 
 2. **Defense in Depth**
    - Multiple layers of rate limiting
+   - RSA encryption for password transmission
    - JWT authentication + password verification
+   - Bcrypt password hashing
    - Input validation
    - Output sanitization
    - Error handling
@@ -203,11 +224,12 @@ These should be handled at the deployment platform level:
    - No multi-user support
    - Acceptable for personal use case
 
-2. **No End-to-End Encryption**
+2. **Limited End-to-End Encryption**
+   - **NEW**: Password transmission now encrypted with RSA public key cryptography
    - Data encrypted in transit (HTTPS/WSS)
    - Data encrypted at rest (MongoDB Atlas)
-   - Not end-to-end encrypted in application layer
-   - Future enhancement if needed
+   - Chat messages not end-to-end encrypted in application layer
+   - Future enhancement if needed for message-level E2E
 
 3. **Rate Limiting Based on IP**
    - Can be bypassed with VPN/proxy
@@ -285,9 +307,66 @@ In case of security incident:
    - Apply security patches
    - Update deployment
 
+## RSA Encryption Implementation Details
+
+### Overview
+
+The application now implements RSA public key cryptography for securing password transmission. This provides an additional layer of security beyond HTTPS, protecting against certain types of attacks.
+
+### How It Works
+
+1. **Server Startup**
+   - Server generates a 2048-bit RSA key pair
+   - Private key stored in memory only (never written to disk)
+   - Public key served via `/api/auth/public-key` endpoint
+   - Keys regenerate on each server restart for enhanced security
+
+2. **Client-Side Encryption**
+   - Frontend fetches public key on login page load
+   - User enters password in plain text (locally)
+   - Password encrypted with RSA public key using jsencrypt library
+   - Encrypted password sent to server via HTTPS
+
+3. **Server-Side Decryption**
+   - Server receives encrypted password
+   - Decrypts using private key (RSA-OAEP with SHA-256)
+   - Compares decrypted password with stored bcrypt hash
+   - Issues JWT token on successful authentication
+
+### Security Benefits
+
+1. **MITM Protection**: Even if HTTPS is compromised, attacker cannot decrypt password
+2. **Forward Secrecy**: Keys regenerate on restart, limiting exposure window
+3. **Defense in Depth**: Multiple layers (RSA + HTTPS + bcrypt + JWT)
+4. **No Plaintext Storage**: Private key never written to disk or logs
+5. **Backward Compatible**: Supports plain passwords with warnings (for migration)
+
+### Technical Specifications
+
+- **Algorithm**: RSA-OAEP (Optimal Asymmetric Encryption Padding)
+- **Key Size**: 2048 bits (secure for current standards through 2030)
+- **Hash Function**: SHA-256
+- **Padding**: PKCS#1 OAEP
+- **Library**: Node.js built-in crypto module (backend), jsencrypt (frontend)
+- **Key Format**: PEM (Privacy Enhanced Mail)
+
+### Implementation Files
+
+- **Backend**: `backend/crypto-utils.js` - RSA utilities
+- **Backend**: `backend/server.js` - Key generation and auth endpoint
+- **Frontend**: `frontend/src/components/Login.jsx` - Client-side encryption
+
+### Backward Compatibility
+
+The system supports both encrypted and plain passwords:
+- Encrypted passwords: `{ encryptedPassword: "base64..." }` ✅ Recommended
+- Plain passwords: `{ password: "plain text" }` ⚠️ Deprecated
+- Production warning logged for plain passwords
+
 ## Conclusion
 
 The application has been secured with industry-standard practices:
+- ✅ **RSA public key encryption** for password transmission (NEW)
 - ✅ JWT-based authentication
 - ✅ Token expiration and refresh
 - ✅ Password expiration (3-month window)

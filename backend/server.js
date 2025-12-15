@@ -13,9 +13,17 @@ const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const bcrypt = require('bcryptjs');
 const Message = require('./models/Message');
+const cryptoUtils = require('./crypto-utils');
 
 const app = express();
 const server = http.createServer(app);
+
+// Generate RSA key pair for password encryption
+// Note: This is a one-time synchronous operation on startup.
+// While computationally expensive (~100ms), it's acceptable as it only
+// happens once during server initialization, not during request handling.
+// Keys regenerate on restart for forward secrecy.
+const rsaKeyPair = cryptoUtils.getOrGenerateKeyPair();
 
 // Security: Parse allowed origins for CORS
 const getAllowedOrigins = () => {
@@ -307,15 +315,73 @@ const uploadLimiter = rateLimit({
 // Apply rate limiting to API routes
 app.use('/api/', apiLimiter);
 
+// Public key endpoint (no authentication required)
+// This allows clients to fetch the public key for encrypting passwords
+// Rate limited by apiLimiter (100 requests per 15 min per IP)
+app.get('/api/auth/public-key', (req, res) => {
+  const clientIp = req.ip || req.connection.remoteAddress;
+  
+  try {
+    // Log public key access for security monitoring
+    if (process.env.NODE_ENV === 'production') {
+      logSecurityEvent('PUBLIC_KEY_ACCESS', { ip: clientIp });
+    }
+    
+    // Cache headers to allow client-side caching for 5 minutes
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    
+    res.json({ 
+      success: true, 
+      publicKey: rsaKeyPair.publicKey,
+      keyFingerprint: cryptoUtils.getPublicKeyFingerprint(rsaKeyPair.publicKey)
+    });
+  } catch (err) {
+    console.error('Error serving public key:', err);
+    logSecurityEvent('PUBLIC_KEY_ERROR', { ip: clientIp, error: err.message });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to retrieve public key' 
+    });
+  }
+});
+
 // Authentication endpoint with JWT token generation
 app.post('/api/auth', authLimiter, strictAuthLimiter, async (req, res) => {
   const clientIp = req.ip || req.connection.remoteAddress;
   
   try {
-    const { password } = req.body;
+    const { password, encryptedPassword } = req.body;
+    
+    // Decrypt password if encrypted with RSA
+    let decryptedPassword;
+    if (encryptedPassword) {
+      try {
+        decryptedPassword = cryptoUtils.decryptWithPrivateKey(encryptedPassword, rsaKeyPair.privateKey);
+        logSecurityEvent('AUTH_ENCRYPTED_PASSWORD_RECEIVED', { ip: clientIp });
+      } catch (decryptErr) {
+        logSecurityEvent('AUTH_DECRYPTION_FAILED', { ip: clientIp, error: decryptErr.message });
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Failed to decrypt password. Please refresh and try again.' 
+        });
+      }
+    } else if (password) {
+      // Fallback to plain password for backward compatibility
+      // Log a warning in production
+      if (process.env.NODE_ENV === 'production') {
+        console.warn('SECURITY WARNING: Received unencrypted password. Client should use RSA encryption.');
+      }
+      decryptedPassword = password;
+    } else {
+      logSecurityEvent('AUTH_NO_PASSWORD', { ip: clientIp });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Password is required' 
+      });
+    }
     
     // Validate password input
-    const validation = validatePasswordInput(password);
+    const validation = validatePasswordInput(decryptedPassword);
     if (!validation.valid) {
       logSecurityEvent('AUTH_VALIDATION_FAILED', { ip: clientIp, reason: validation.error });
       return res.status(400).json({ 
@@ -335,7 +401,7 @@ app.post('/api/auth', authLimiter, strictAuthLimiter, async (req, res) => {
     }
     
     // Compare password securely (supports both plain and hashed)
-    const isPasswordValid = await comparePassword(password, CHAT_PASSWORD);
+    const isPasswordValid = await comparePassword(decryptedPassword, CHAT_PASSWORD);
     
     if (isPasswordValid) {
       const token = generateToken();
@@ -497,6 +563,15 @@ app.post('/api/messages', verifyToken, uploadLimiter, upload.fields([
     // Handle image upload with CBOR encoding
     if (req.files && req.files.image && req.files.image[0]) {
       const imageFile = req.files.image[0];
+      
+      // Validate image MIME type for security
+      const allowedImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+      if (!allowedImageTypes.includes(imageFile.mimetype)) {
+        return res.status(400).json({ 
+          message: 'Invalid image type. Allowed: JPEG, PNG, GIF, WebP, SVG' 
+        });
+      }
+      
       // Compress and encode the buffer using CBOR
       const compressed = pako.gzip(imageFile.buffer);
       const encodedImage = cbor.encode(compressed);
@@ -507,11 +582,24 @@ app.post('/api/messages', verifyToken, uploadLimiter, upload.fields([
     // Handle file upload with CBOR encoding
     if (req.files && req.files.file && req.files.file[0]) {
       const file = req.files.file[0];
+      
+      // Validate file size (already limited by multer, but double-check)
+      if (file.size > 50 * 1024 * 1024) {
+        return res.status(400).json({ message: 'File size exceeds 50MB limit' });
+      }
+      
+      // Sanitize filename to prevent path traversal attacks
+      // Preserve spaces and common characters, only replace dangerous ones
+      const sanitizedFilename = file.originalname
+        .replace(/[\/\\:\*\?"<>\|\x00]/g, '_') // Replace path separators and dangerous chars
+        .replace(/\.\./g, '_') // Prevent directory traversal
+        .substring(0, 255); // Limit filename length
+      
       // Compress and encode the buffer using CBOR
       const compressed = pako.gzip(file.buffer);
       const encodedFile = cbor.encode(compressed);
       messageData.fileData = encodedFile;
-      messageData.fileName = file.originalname;
+      messageData.fileName = sanitizedFilename;
       messageData.fileMimeType = file.mimetype;
       messageData.fileSize = file.size;
     }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -15,6 +15,7 @@ import {
 } from '@mui/material';
 import LockIcon from '@mui/icons-material/Lock';
 import axios from 'axios';
+import JSEncrypt from 'jsencrypt';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -23,6 +24,31 @@ function Login({ onLogin }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [warningDialog, setWarningDialog] = useState({ open: false, days: 0, token: null });
+  const [publicKey, setPublicKey] = useState(null);
+  const [keyError, setKeyError] = useState(false);
+
+  // Fetch public key on component mount
+  useEffect(() => {
+    const fetchPublicKey = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/api/auth/public-key`);
+        if (response.data.success && response.data.publicKey) {
+          setPublicKey(response.data.publicKey);
+          // Log key fingerprint for debugging (only in development)
+          if (import.meta.env.DEV) {
+            console.log('Public key loaded, fingerprint:', response.data.keyFingerprint);
+          }
+        } else {
+          setKeyError(true);
+        }
+      } catch (err) {
+        console.error('Failed to fetch public key:', err);
+        setKeyError(true);
+      }
+    };
+
+    fetchPublicKey();
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -30,9 +56,34 @@ function Login({ onLogin }) {
     setLoading(true);
 
     try {
+      // Encrypt password with RSA public key
+      let requestBody;
+      if (publicKey) {
+        const encrypt = new JSEncrypt();
+        encrypt.setPublicKey(publicKey);
+        const encryptedPassword = encrypt.encrypt(password);
+        
+        if (!encryptedPassword) {
+          setError('Password encryption failed. This may indicate a connection issue or browser incompatibility. Please try refreshing the page.');
+          setLoading(false);
+          return;
+        }
+        
+        requestBody = { encryptedPassword };
+        
+        // Log encryption success in development
+        if (import.meta.env.DEV) {
+          console.log('Password encrypted successfully');
+        }
+      } else {
+        // Fallback to plain password if public key not available
+        console.warn('Public key not available, sending plain password');
+        requestBody = { password };
+      }
+
       const response = await axios.post(
         `${API_URL}/api/auth`, 
-        { password },
+        requestBody,
         {
           headers: {
             'Content-Type': 'application/json',
@@ -103,6 +154,12 @@ function Login({ onLogin }) {
             </Box>
 
             <form onSubmit={handleSubmit}>
+              {keyError && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  Secure encryption unavailable. Connection may be less secure.
+                </Alert>
+              )}
+              
               <TextField
                 fullWidth
                 type="password"
