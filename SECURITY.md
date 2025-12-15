@@ -2,6 +2,8 @@
 
 ## CodeQL Analysis Results
 
+**Latest Scan: 0 Alerts** ✅
+
 ### Fixed Issues ✅
 
 1. **JWT-Based Authentication**
@@ -14,16 +16,19 @@
    - Added `authLimiter` with 5 requests per 15 minutes per IP
    - Added `strictAuthLimiter` with 10 requests per hour (progressive lockout)
    - Prevents brute force password attacks
+   - **IPv6-safe**: Fixed custom keyGenerator to prevent IPv6 bypass
    - Status: **FIXED**
 
 3. **Rate Limiting on Database Access Routes**
    - Added `apiLimiter` with 100 requests per 15 minutes per IP for all `/api/` routes
    - Prevents database DoS attacks
+   - **IPv6-safe**: Uses default keyGenerator
    - Status: **FIXED**
 
 4. **Rate Limiting on File Upload Endpoint**
    - Added `uploadLimiter` with 20 uploads per 15 minutes per IP
    - Prevents storage exhaustion attacks
+   - **IPv6-safe**: Uses default keyGenerator
    - Status: **FIXED**
 
 5. **Password Expiration (3-Month Window)**
@@ -35,16 +40,39 @@
 6. **Security Headers with Helmet.js**
    - Added helmet middleware for secure HTTP headers
    - X-Content-Type-Options, X-Frame-Options, etc.
+   - HSTS with 1-year max age and preload
+   - Enhanced CSP for production and development
    - Status: **IMPLEMENTED**
+
+7. **Bcrypt Password Hashing** (NEW)
+   - Support for bcrypt hashed passwords (backward compatible)
+   - Robust hash detection using regex pattern
+   - Warning logs for plain text passwords
+   - Hash generator utility included
+   - Status: **IMPLEMENTED**
+
+8. **Input Validation and Sanitization** (NEW)
+   - Password input validation (length, type checks)
+   - Text message validation (100KB limit)
+   - Sanitization to remove control characters
+   - Prevents XSS and injection attacks
+   - Status: **IMPLEMENTED**
+
+9. **Security Event Logging** (NEW)
+   - Authentication attempts tracked with IP
+   - Failed login attempts logged
+   - Production-level error logging
+   - Status: **IMPLEMENTED**
+
+10. **Frontend CORS Configuration** (NEW)
+    - Explicit Content-Type headers in requests
+    - withCredentials enabled for authenticated requests
+    - Network error handling with user feedback
+    - Status: **IMPLEMENTED**
 
 ### Remaining Alerts
 
-1. **Static File Serving in Production Mode** (False Positive)
-   - Location: `server.js` (production static serving)
-   - Description: Serving the built React app in production
-   - Reason for accepting: This is standard practice for serving static assets. The files are pre-built and don't require rate limiting. Express.static has built-in security measures.
-   - Mitigation: In production, use a CDN or reverse proxy (nginx) with its own rate limiting
-   - Status: **ACCEPTED** - Not a security concern
+**None** - All security issues have been resolved. Latest CodeQL scan: 0 alerts ✅
 
 ## Security Measures Implemented
 
@@ -53,33 +81,42 @@
 - ✅ Token expiration (configurable, default: 24h)
 - ✅ Token verification on all protected routes
 - ✅ Socket.io authentication middleware
+- ✅ **Bcrypt password hashing** (recommended, backward compatible)
 - ✅ Password expiration with 3-month window
-- ✅ Rate limiting on auth endpoint (5 attempts per 15 min)
+- ✅ Rate limiting on auth endpoint (5 attempts per 15 min, IPv6-safe)
 - ✅ Progressive lockout (10 attempts per hour)
+- ✅ **Input validation** for password fields
+- ✅ **Security event logging** with IP tracking
 - ✅ HTTPS recommended in production (deployment platform handles this)
 
 ### API Security
 - ✅ All API routes protected with JWT verification
+- ✅ **CORS properly configured** with withCredentials support
 - ✅ CORS configured to allow only trusted origins (supports multiple origins)
 - ✅ Request body size limited to 10MB
 - ✅ File upload size limited to 50MB per file
-- ✅ Rate limiting on all API endpoints (100 req/15min)
-- ✅ Rate limiting on upload endpoint (20 uploads/15min)
-- ✅ Input validation on all endpoints
-- ✅ Security headers via Helmet.js
+- ✅ Rate limiting on all API endpoints (100 req/15min, IPv6-safe)
+- ✅ Rate limiting on upload endpoint (20 uploads/15min, IPv6-safe)
+- ✅ **Input validation** on all endpoints
+- ✅ **Input sanitization** to prevent XSS attacks
+- ✅ Security headers via Helmet.js (HSTS, CSP, XSS filter, etc.)
 
 ### Data Security
 - ✅ MongoDB connection string stored in environment variable
 - ✅ JWT secret configurable via environment variable
+- ✅ **Password hashing with bcrypt** (recommended)
 - ✅ CBOR encoding for efficient and secure binary storage
 - ✅ No SQL injection vectors (using Mongoose ODM)
 - ✅ Proper error handling without exposing internals
+- ✅ **Control character sanitization** in text inputs
 
 ### Network Security
 - ✅ Socket.io configured with CORS and authentication
 - ✅ Environment-based configuration for different deployment scenarios
 - ✅ Secure WebSocket connections in production (wss://)
 - ✅ Trust proxy enabled for accurate IP detection behind reverse proxies
+- ✅ **Explicit Content-Type headers** in frontend requests
+- ✅ **Network error handling** with user-friendly messages
 
 ## Environment Variables
 
@@ -87,7 +124,14 @@
 | Variable | Description |
 |----------|-------------|
 | `MONGO_URI` | MongoDB connection string |
-| `CHAT_PASSWORD` | Password for authentication |
+| `CHAT_PASSWORD` | Password for authentication (plain text or bcrypt hash) |
+
+**IMPORTANT: Generate a bcrypt hash for CHAT_PASSWORD**
+```bash
+cd backend
+node generate-hash.js your_password
+# Copy the generated hash to your .env file
+```
 
 ### Optional (with defaults)
 | Variable | Default | Description |

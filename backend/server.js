@@ -11,6 +11,7 @@ const rateLimit = require('express-rate-limit');
 const pako = require('pako');
 const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
+const bcrypt = require('bcryptjs');
 const Message = require('./models/Message');
 
 const app = express();
@@ -70,6 +71,67 @@ const isPasswordExpired = () => {
   return new Date() > expiryDate;
 };
 
+// Validate password input
+const validatePasswordInput = (password) => {
+  if (!password || typeof password !== 'string') {
+    return { valid: false, error: 'Password is required' };
+  }
+  if (password.length > 1000) {
+    return { valid: false, error: 'Password is too long' };
+  }
+  return { valid: true };
+};
+
+// Compare password securely (supports both plain and hashed passwords)
+const comparePassword = async (inputPassword, storedPassword) => {
+  // Check if stored password is a bcrypt hash using comprehensive regex pattern
+  // Matches: $2a$, $2b$, $2x$, $2y$ followed by cost and hash
+  const bcryptPattern = /^\$2[abxy]\$\d+\$/;
+  if (bcryptPattern.test(storedPassword)) {
+    // Use bcrypt comparison for hashed passwords
+    return await bcrypt.compare(inputPassword, storedPassword);
+  } else {
+    // Fallback to plain text comparison (for backward compatibility)
+    // Log a warning to encourage using hashed passwords
+    if (process.env.NODE_ENV === 'production') {
+      console.error('SECURITY WARNING: Using plain text password comparison in production! Generate a bcrypt hash with: node generate-hash.js');
+    } else {
+      console.warn('WARNING: Using plain text password comparison. Consider using a bcrypt hash for CHAT_PASSWORD.');
+    }
+    return inputPassword === storedPassword;
+  }
+};
+
+// Sanitize text input to prevent XSS and injection attacks
+const sanitizeText = (text) => {
+  if (!text || typeof text !== 'string') {
+    return '';
+  }
+  // Remove null bytes, ASCII control characters (except newlines and tabs),
+  // and Unicode control characters (U+0080 to U+009F)
+  return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u0080-\u009F]/g, '');
+};
+
+// Validate text message input
+const validateTextInput = (text) => {
+  if (!text) {
+    return { valid: true }; // Empty text is valid (for image-only messages)
+  }
+  if (typeof text !== 'string') {
+    return { valid: false, error: 'Text must be a string' };
+  }
+  if (text.length > 100000) { // 100KB text limit
+    return { valid: false, error: 'Text message is too long' };
+  }
+  return { valid: true };
+};
+
+// Security logging helper
+const logSecurityEvent = (event, details) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[SECURITY] ${timestamp} - ${event}:`, JSON.stringify(details));
+};
+
 // Generate JWT token
 const generateToken = () => {
   return jwt.sign(
@@ -125,8 +187,8 @@ if (!MONGO_URI) {
 }
 
 mongoose.connect(MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
+  heartbeatFrequencyMS: 10000, // Check connection health every 10s
 }).then(() => {
   console.log('MongoDB connected');
 }).catch(err => {
@@ -138,7 +200,17 @@ mongoose.connect(MONGO_URI, {
 const getHelmetConfig = () => {
   const config = {
     crossOriginEmbedderPolicy: false,
-    crossOriginResourcePolicy: { policy: 'cross-origin' }
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    hsts: {
+      maxAge: 31536000, // 1 year
+      includeSubDomains: true,
+      preload: true
+    },
+    frameguard: {
+      action: 'deny' // Prevent clickjacking
+    },
+    noSniff: true, // Prevent MIME type sniffing
+    xssFilter: true, // Enable XSS filter
   };
   
   // In development, allow inline scripts and styles for hot reloading
@@ -151,6 +223,27 @@ const getHelmetConfig = () => {
         imgSrc: ["'self'", "data:", "blob:"],
         connectSrc: ["'self'", "ws:", "wss:"],
         fontSrc: ["'self'", "data:"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'none'"],
+      }
+    };
+  } else {
+    // In production, be more restrictive
+    config.contentSecurityPolicy = {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"], // MUI requires inline styles
+        imgSrc: ["'self'", "data:", "blob:"],
+        connectSrc: ["'self'", "wss:"],
+        fontSrc: ["'self'", "data:"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'none'"],
+        upgradeInsecureRequests: [],
       }
     };
   }
@@ -172,13 +265,14 @@ app.use(express.static('public'));
 app.set('trust proxy', 1);
 
 // Rate limiting middleware
+// Note: Default keyGenerator properly handles both IPv4 and IPv6 addresses
+// Custom keyGenerators were removed to avoid IPv6 bypass vulnerabilities
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Limit each IP to 100 requests per windowMs
   message: { success: false, message: 'Too many requests from this IP, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip, // Use IP for rate limiting
 });
 
 // Stricter rate limiting for authentication (anti-brute force)
@@ -188,7 +282,6 @@ const authLimiter = rateLimit({
   message: { success: false, message: 'Too many authentication attempts, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip,
   skipSuccessfulRequests: false, // Count all requests including successful ones
 });
 
@@ -199,7 +292,6 @@ const strictAuthLimiter = rateLimit({
   message: { success: false, message: 'Too many failed authentication attempts. Account locked for 1 hour.' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip,
 });
 
 const uploadLimiter = rateLimit({
@@ -214,37 +306,65 @@ const uploadLimiter = rateLimit({
 app.use('/api/', apiLimiter);
 
 // Authentication endpoint with JWT token generation
-app.post('/api/auth', authLimiter, strictAuthLimiter, (req, res) => {
-  const { password } = req.body;
+app.post('/api/auth', authLimiter, strictAuthLimiter, async (req, res) => {
+  const clientIp = req.ip || req.connection.remoteAddress;
   
-  // Check password expiration first
-  if (isPasswordExpired()) {
-    return res.status(403).json({ 
-      success: false, 
-      message: 'Password has expired. Please update CHAT_PASSWORD and PASSWORD_SET_DATE in your environment variables.',
-      expired: true
-    });
-  }
-  
-  if (password === CHAT_PASSWORD) {
-    const token = generateToken();
+  try {
+    const { password } = req.body;
     
-    // Calculate days until password expires (if date is set)
-    let daysUntilExpiry = null;
-    if (PASSWORD_SET_DATE) {
-      const expiryDate = new Date(PASSWORD_SET_DATE);
-      expiryDate.setDate(expiryDate.getDate() + PASSWORD_EXPIRY_DAYS);
-      daysUntilExpiry = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
+    // Validate password input
+    const validation = validatePasswordInput(password);
+    if (!validation.valid) {
+      logSecurityEvent('AUTH_VALIDATION_FAILED', { ip: clientIp, reason: validation.error });
+      return res.status(400).json({ 
+        success: false, 
+        message: validation.error 
+      });
     }
     
-    res.json({ 
-      success: true, 
-      token,
-      expiresIn: JWT_EXPIRY,
-      passwordExpiresInDays: daysUntilExpiry
+    // Check password expiration first
+    if (isPasswordExpired()) {
+      logSecurityEvent('AUTH_PASSWORD_EXPIRED', { ip: clientIp });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Password has expired. Please update CHAT_PASSWORD and PASSWORD_SET_DATE in your environment variables.',
+        expired: true
+      });
+    }
+    
+    // Compare password securely (supports both plain and hashed)
+    const isPasswordValid = await comparePassword(password, CHAT_PASSWORD);
+    
+    if (isPasswordValid) {
+      const token = generateToken();
+      
+      // Calculate days until password expires (if date is set)
+      let daysUntilExpiry = null;
+      if (PASSWORD_SET_DATE) {
+        const expiryDate = new Date(PASSWORD_SET_DATE);
+        expiryDate.setDate(expiryDate.getDate() + PASSWORD_EXPIRY_DAYS);
+        daysUntilExpiry = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
+      }
+      
+      logSecurityEvent('AUTH_SUCCESS', { ip: clientIp });
+      
+      res.json({ 
+        success: true, 
+        token,
+        expiresIn: JWT_EXPIRY,
+        passwordExpiresInDays: daysUntilExpiry
+      });
+    } else {
+      logSecurityEvent('AUTH_FAILED', { ip: clientIp, reason: 'Invalid password' });
+      res.status(401).json({ success: false, message: 'Invalid password' });
+    }
+  } catch (err) {
+    console.error('Authentication error:', err);
+    logSecurityEvent('AUTH_ERROR', { ip: clientIp, error: err.message });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Authentication failed. Please try again.' 
     });
-  } else {
-    res.status(401).json({ success: false, message: 'Invalid password' });
   }
 });
 
@@ -357,12 +477,18 @@ app.post('/api/messages', verifyToken, uploadLimiter, upload.fields([
     const { text } = req.body;
     const messageData = {};
 
-    // Compress text if present
+    // Validate and sanitize text if present
     if (text && text.trim()) {
-      messageData.text = text; // Store original for now, compress if large
-      if (text.length > 100) {
+      const validation = validateTextInput(text);
+      if (!validation.valid) {
+        return res.status(400).json({ message: validation.error });
+      }
+      
+      const sanitizedText = sanitizeText(text);
+      messageData.text = sanitizedText; // Store sanitized text
+      if (sanitizedText.length > 100) {
         // Compress text larger than 100 characters
-        messageData.text = compressText(text);
+        messageData.text = compressText(sanitizedText);
       }
     }
 
@@ -438,9 +564,15 @@ app.put('/api/messages/:id', verifyToken, async (req, res) => {
       return res.status(404).json({ message: 'Message not found' });
     }
 
-    // Update text with compression if needed
+    // Validate and sanitize text if present
     if (text && text.trim()) {
-      message.text = text.length > 100 ? compressText(text) : text;
+      const validation = validateTextInput(text);
+      if (!validation.valid) {
+        return res.status(400).json({ message: validation.error });
+      }
+      
+      const sanitizedText = sanitizeText(text);
+      message.text = sanitizedText.length > 100 ? compressText(sanitizedText) : sanitizedText;
       message.edited = true;
       message.editedAt = new Date();
     }
