@@ -87,6 +87,13 @@ PORT=3000
 NODE_ENV=development
 ```
 
+   **Security Recommendation**: Use a bcrypt hash instead of plain text password:
+   ```bash
+   cd backend
+   node generate-hash.js your_password
+   # Copy the generated hash to CHAT_PASSWORD in .env
+   ```
+
 6. Create `.env` file in the frontend directory:
 ```bash
 cd ../frontend

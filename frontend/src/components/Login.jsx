@@ -30,7 +30,16 @@ function Login({ onLogin }) {
     setLoading(true);
 
     try {
-      const response = await axios.post(`${API_URL}/api/auth`, { password });
+      const response = await axios.post(
+        `${API_URL}/api/auth`, 
+        { password },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          withCredentials: true,
+        }
+      );
       if (response.data.success) {
         // Check if password is expiring soon (within 14 days)
         const daysUntilExpiry = response.data.passwordExpiresInDays;
@@ -46,7 +55,10 @@ function Login({ onLogin }) {
         }
       }
     } catch (err) {
-      if (err.response?.data?.expired) {
+      console.error('Authentication error:', err);
+      if (err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
+        setError('Unable to connect to server. Please check your network connection and ensure the backend is running.');
+      } else if (err.response?.data?.expired) {
         setError('Password has expired. Please contact the administrator to update the password.');
       } else if (err.response?.status === 429) {
         setError('Too many login attempts. Please try again later.');

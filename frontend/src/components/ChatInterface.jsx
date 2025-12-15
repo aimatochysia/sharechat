@@ -32,8 +32,10 @@ function ChatInterface({ onLogout, token }) {
     return axios.create({
       baseURL: API_URL,
       headers: {
-        'Authorization': `Bearer ${token}`
-      }
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      withCredentials: true,
     });
   }, [token]);
 
